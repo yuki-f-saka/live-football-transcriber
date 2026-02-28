@@ -20,7 +20,7 @@ brew install ffmpeg
 ## Installation
 
 ```bash
-git clone https://github.com/funesaka/live-football-transcriber.git
+git clone https://github.com/yuki-f-saka/live-football-transcriber.git
 cd live-football-transcriber
 pip install -r requirements.txt
 ```
