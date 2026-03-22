@@ -33,6 +33,7 @@ REALTIME_MODEL       = "tiny.en"     # 途中経過の高速モデル
 FONT_SIZE            = 30
 FONT_COLOR_FINAL     = "#00e676"     # 確定テキストは明るいグリーン
 FONT_COLOR_PARTIAL   = "white"       # 途中経過はホワイト
+MAX_PARTIAL_CHARS    = 80            # 途中経過テキストの最大文字数（長い発話で字幕が溢れるのを防ぐ）
 BG_COLOR             = "#111111"
 BG_OPACITY           = 200
 SUBTITLE_SECONDS     = 4.0
@@ -153,8 +154,10 @@ def main():
     text_queue: queue.Queue = queue.Queue()
 
     def on_partial(text: str):
-        if text.strip():
-            text_queue.put(("partial", text.strip()))
+        text = text.strip()
+        if text:
+            # 長い発話で字幕エリアが埋め尽くされないよう末尾N文字だけ表示
+            text_queue.put(("partial", text[-MAX_PARTIAL_CHARS:]))
 
     print(f"Loading models (this may take a moment on first run)...")
     recorder = AudioToTextRecorder(
