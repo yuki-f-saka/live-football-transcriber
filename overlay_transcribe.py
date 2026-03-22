@@ -27,20 +27,20 @@ DEVICE_NAME     = "BlackHole 2ch"
 SAMPLE_RATE     = 16000
 
 # --- VAD settings ---
-SILENCE_RMS_THRESHOLD       = 0.03   # この値以下のRMSは無音とみなす（観客ノイズ対策で高めに設定）
-POST_SPEECH_SILENCE_SECONDS = 0.4    # 発話終了後この秒数の無音で文字起こしをトリガー
-MIN_SPEECH_SECONDS          = 0.3    # これ未満の発話は無視する
-MAX_SPEECH_SECONDS          = 1.5    # 連続発話がこの秒数を超えたら強制的にフラッシュ
+SILENCE_RMS_THRESHOLD       = 0.03   # RMS below this is treated as silence (raised to filter crowd noise)
+POST_SPEECH_SILENCE_SECONDS = 0.4    # silence duration after speech to trigger transcription
+MIN_SPEECH_SECONDS          = 0.3    # speech segments shorter than this are ignored
+MAX_SPEECH_SECONDS          = 1.5    # force-flush after this many seconds of continuous speech
 
 # --- Overlay appearance ---
 FONT_SIZE            = 30
 FONT_COLOR           = "white"
 BG_COLOR             = "#111111"
-BG_OPACITY           = 200        # 0 (透明) 〜 255 (不透明)
-SUBTITLE_SECONDS     = 4.0        # 字幕が消えるまでの秒数
-SCREEN_MARGIN_Y      = 40         # 画面上端からの距離 (px)
-WINDOW_WIDTH_RATIO   = 0.65       # 画面幅に対するウィンドウ幅の比率
-SCREEN_INDEX         = 1          # 字幕を表示するスクリーン番号 (0=メイン, 1=外部ディスプレイ, ...)
+BG_OPACITY           = 200        # 0 (transparent) to 255 (opaque)
+SUBTITLE_SECONDS     = 4.0        # seconds before subtitle disappears
+SCREEN_MARGIN_Y      = 40         # distance from top of screen (px)
+WINDOW_WIDTH_RATIO   = 0.65       # subtitle bar width as fraction of screen width
+SCREEN_INDEX         = 1          # screen to show overlay on (0 = main, 1 = external, ...)
 
 # ------------------------------
 
@@ -61,30 +61,30 @@ class SubtitleWindow(QWidget):
     def __init__(self):
         super().__init__()
 
-        # ウィンドウの設定
+        # Window flags
         self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint        # タイトルバーなし
-            | Qt.WindowType.WindowStaysOnTopHint     # 常に最前面
-            | Qt.WindowType.WindowTransparentForInput  # クリック透過
+            Qt.WindowType.FramelessWindowHint        # no title bar
+            | Qt.WindowType.WindowStaysOnTopHint     # always on top
+            | Qt.WindowType.WindowTransparentForInput  # click-through
         )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)  # 背景透過
-        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)  # フォーカスを奪わない
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)  # transparent background
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)  # don't steal focus
 
-        # 画面サイズに合わせて配置
+        # Position window on the target screen
         screens = QApplication.screens()
         target = screens[SCREEN_INDEX] if SCREEN_INDEX < len(screens) else screens[0]
         if SCREEN_INDEX >= len(screens):
-            print(f"[warn] SCREEN_INDEX={SCREEN_INDEX} が存在しません (検出: {len(screens)}画面)。0番を使用します。")
+            print(f"[warn] SCREEN_INDEX={SCREEN_INDEX} not found ({len(screens)} screen(s) detected). Using screen 0.")
         print(f"Using screen [{SCREEN_INDEX if SCREEN_INDEX < len(screens) else 0}]: {target.name()}")
-        screen = target.availableGeometry()  # Dockを除いた領域
+        screen = target.availableGeometry()  # area excluding the Dock
         win_w = int(screen.width() * WINDOW_WIDTH_RATIO)
         win_h = 90
         x = screen.x() + (screen.width() - win_w) // 2
-        y = screen.y() + SCREEN_MARGIN_Y  # 上端から配置
+        y = screen.y() + SCREEN_MARGIN_Y
         self.setGeometry(x, y, win_w, win_h)
         print(f"Overlay window: {win_w}x{win_h} at ({x}, {y})")
 
-        # 字幕ラベル
+        # Subtitle label
         self.label = QLabel("", self)
         self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.label.setWordWrap(True)
@@ -102,7 +102,7 @@ class SubtitleWindow(QWidget):
         """)
         self.label.setGeometry(0, 0, win_w, win_h)
 
-        # 自動クリア用タイマー
+        # Timer to auto-clear subtitle
         self._clear_timer = QTimer(self)
         self._clear_timer.setSingleShot(True)
         self._clear_timer.timeout.connect(self._clear)
@@ -120,7 +120,7 @@ class SubtitleWindow(QWidget):
 
 
 class VadState:
-    """音声区間検出のための状態管理"""
+    """Tracks voice activity detection state across audio callbacks."""
     def __init__(self):
         self.is_speaking = False
         self.speech_buffer: np.ndarray = np.zeros(0, dtype=np.float32)
@@ -129,7 +129,7 @@ class VadState:
 
 def main():
     print(f"Loading model '{MODEL_SIZE}'...")
-    # モデルを初回ロード（HuggingFaceから自動ダウンロード）
+    # Warm up the model (downloads from HuggingFace on first run)
     mlx_whisper.transcribe(np.zeros(16000, dtype=np.float32), path_or_hf_repo=MODEL_SIZE)
     print("Model loaded.\n")
 
@@ -140,9 +140,9 @@ def main():
 
     app = QApplication(sys.argv)
 
-    # Ctrl+C (SIGINT) を受け取ったら正常終了する
+    # Handle Ctrl+C gracefully (SIGINT)
     signal.signal(signal.SIGINT, lambda *_: QApplication.quit())
-    # app.exec() はC++ループなのでタイマーでPythonにシグナル処理の機会を与える
+    # Give Python a chance to handle signals inside the C++ Qt event loop
     sigint_timer = QTimer()
     sigint_timer.start(200)
     sigint_timer.timeout.connect(lambda: None)
@@ -151,7 +151,7 @@ def main():
     window.show()
     window.raise_()
 
-    # 起動直後にテスト文字を表示して位置確認
+    # Show startup message to confirm overlay position
     window.show_text("▶ Overlay active — waiting for audio...")
 
     audio_queue: queue.Queue = queue.Queue()
@@ -172,23 +172,23 @@ def main():
         is_speech = rms > SILENCE_RMS_THRESHOLD
 
         if is_speech:
-            # 発話中: バッファに追加、無音カウンタリセット
+            # Active speech: append to buffer and reset silence counter
             vad.is_speaking = True
             vad.silence_samples = 0
             vad.speech_buffer = np.concatenate([vad.speech_buffer, audio])
 
-            # 長時間連続発話のセーフティフラッシュ
+            # Safety flush for very long continuous speech
             if len(vad.speech_buffer) >= max_speech_samples:
                 audio_queue.put(vad.speech_buffer.copy())
                 vad.speech_buffer = np.zeros(0, dtype=np.float32)
 
         elif vad.is_speaking:
-            # 発話後の無音: バッファに追加しつつ無音サンプル数を計上
+            # Silence after speech: keep buffering and count silence samples
             vad.speech_buffer = np.concatenate([vad.speech_buffer, audio])
             vad.silence_samples += len(audio)
 
             if vad.silence_samples >= post_speech_silence_samples:
-                # 十分な無音 → 文字起こしトリガー
+                # Enough silence detected — trigger transcription
                 if len(vad.speech_buffer) >= min_speech_samples:
                     audio_queue.put(vad.speech_buffer.copy())
                 vad.speech_buffer = np.zeros(0, dtype=np.float32)
@@ -196,12 +196,12 @@ def main():
                 vad.is_speaking = False
 
     def is_hallucination(text: str) -> bool:
-        """Whisperの繰り返しハルシネーションや記号のみ出力を検出する"""
-        # アルファベットがほとんど含まれない場合は棄却（"...", "!", "St-" など）
+        """Detect Whisper hallucinations: symbol-only output or repeated words."""
+        # Reject output with fewer than 4 alphabetic characters (e.g. "...", "!", "St-")
         alpha_chars = sum(c.isalpha() for c in text)
         if alpha_chars < 4:
             return True
-        # 同じ単語が連続して4回以上出現したらハルシネーションと判定
+        # Reject output where the same word repeats 4+ times consecutively
         words = text.split()
         for i in range(len(words) - 3):
             if len(set(words[i:i + 4])) == 1:
@@ -220,7 +220,7 @@ def main():
                 language="en",
             )
 
-            # no_speech_prob が高いセグメントが含まれる場合はスキップ
+            # Skip segments where Whisper is not confident there is speech
             segments = result.get("segments", [])
             if segments:
                 avg_no_speech = sum(s.get("no_speech_prob", 0) for s in segments) / len(segments)
@@ -231,7 +231,7 @@ def main():
             if text and not is_hallucination(text):
                 text_queue.put(text)
 
-    # 100msごとにtext_queueを確認してGUIを更新
+    # Poll text_queue every 50ms and update the GUI
     def poll_text():
         try:
             while True:
@@ -254,7 +254,7 @@ def main():
         samplerate=SAMPLE_RATE,
         dtype="float32",
         callback=audio_callback,
-        blocksize=int(SAMPLE_RATE * 0.05),  # 50ms ブロック: VAD応答性のため短く
+        blocksize=int(SAMPLE_RATE * 0.05),  # 50ms blocks for responsive VAD
     )
     stream.start()
 
