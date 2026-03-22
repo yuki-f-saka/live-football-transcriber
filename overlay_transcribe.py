@@ -15,18 +15,19 @@ import threading
 import time
 import numpy as np
 import sounddevice as sd
-from faster_whisper import WhisperModel
+import mlx_whisper
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import QApplication, QLabel, QWidget
 
 # --- Audio / Model settings ---
-MODEL_SIZE      = "small.en"
+MODEL_SIZE      = "mlx-community/whisper-small.en-mlx"
+# MODEL_SIZE = "mlx-community/whisper-tiny.en-mlx"
 DEVICE_NAME     = "BlackHole 2ch"
 SAMPLE_RATE     = 16000
 
 # --- VAD settings ---
-SILENCE_RMS_THRESHOLD       = 0.01   # この値以下のRMSは無音とみなす
+SILENCE_RMS_THRESHOLD       = 0.03   # この値以下のRMSは無音とみなす（観客ノイズ対策で高めに設定）
 POST_SPEECH_SILENCE_SECONDS = 0.4    # 発話終了後この秒数の無音で文字起こしをトリガー
 MIN_SPEECH_SECONDS          = 0.3    # これ未満の発話は無視する
 MAX_SPEECH_SECONDS          = 1.5    # 連続発話がこの秒数を超えたら強制的にフラッシュ
@@ -128,7 +129,8 @@ class VadState:
 
 def main():
     print(f"Loading model '{MODEL_SIZE}'...")
-    model = WhisperModel(MODEL_SIZE, device="auto", compute_type="int8")
+    # モデルを初回ロード（HuggingFaceから自動ダウンロード）
+    mlx_whisper.transcribe(np.zeros(16000, dtype=np.float32), path_or_hf_repo=MODEL_SIZE)
     print("Model loaded.\n")
 
     device_index = find_device_index(DEVICE_NAME)
@@ -193,22 +195,41 @@ def main():
                 vad.silence_samples = 0
                 vad.is_speaking = False
 
+    def is_hallucination(text: str) -> bool:
+        """Whisperの繰り返しハルシネーションや記号のみ出力を検出する"""
+        # アルファベットがほとんど含まれない場合は棄却（"...", "!", "St-" など）
+        alpha_chars = sum(c.isalpha() for c in text)
+        if alpha_chars < 4:
+            return True
+        # 同じ単語が連続して4回以上出現したらハルシネーションと判定
+        words = text.split()
+        for i in range(len(words) - 3):
+            if len(set(words[i:i + 4])) == 1:
+                return True
+        return False
+
     def transcription_worker():
         while True:
             audio_chunk = audio_queue.get()
             if audio_chunk is None:
                 break
 
-            segments, _ = model.transcribe(
+            result = mlx_whisper.transcribe(
                 audio_chunk,
+                path_or_hf_repo=MODEL_SIZE,
                 language="en",
-                beam_size=1,
-                vad_filter=True,
-                vad_parameters={"min_silence_duration_ms": 300},
             )
-            parts = [seg.text.strip() for seg in segments]
-            if parts:
-                text_queue.put(" ".join(parts))
+
+            # no_speech_prob が高いセグメントが含まれる場合はスキップ
+            segments = result.get("segments", [])
+            if segments:
+                avg_no_speech = sum(s.get("no_speech_prob", 0) for s in segments) / len(segments)
+                if avg_no_speech > 0.5:
+                    continue
+
+            text = result["text"].strip()
+            if text and not is_hallucination(text):
+                text_queue.put(text)
 
     # 100msごとにtext_queueを確認してGUIを更新
     def poll_text():
@@ -222,7 +243,7 @@ def main():
 
     timer = QTimer()
     timer.timeout.connect(poll_text)
-    timer.start(100)
+    timer.start(50)
 
     worker = threading.Thread(target=transcription_worker, daemon=True)
     worker.start()
