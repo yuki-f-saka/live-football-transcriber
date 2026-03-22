@@ -188,29 +188,29 @@ def main():
             rms = float(np.sqrt(np.mean(audio ** 2)))
             is_speech = rms > SILENCE_RMS_THRESHOLD
 
-        if is_speech:
-            # Active speech: append to buffer and reset silence counter
-            vad.is_speaking = True
-            vad.silence_samples = 0
-            vad.speech_buffer = np.concatenate([vad.speech_buffer, audio])
-
-            # Safety flush for very long continuous speech
-            if len(vad.speech_buffer) >= max_speech_samples:
-                audio_queue.put(vad.speech_buffer.copy())
-                vad.speech_buffer = np.zeros(0, dtype=np.float32)
-
-        elif vad.is_speaking:
-            # Silence after speech: keep buffering and count silence samples
-            vad.speech_buffer = np.concatenate([vad.speech_buffer, audio])
-            vad.silence_samples += len(audio)
-
-            if vad.silence_samples >= post_speech_silence_samples:
-                # Enough silence detected — trigger transcription
-                if len(vad.speech_buffer) >= min_speech_samples:
-                    audio_queue.put(vad.speech_buffer.copy())
-                vad.speech_buffer = np.zeros(0, dtype=np.float32)
+            if is_speech:
+                # Active speech: append to buffer and reset silence counter
+                vad.is_speaking = True
                 vad.silence_samples = 0
-                vad.is_speaking = False
+                vad.speech_buffer = np.concatenate([vad.speech_buffer, audio])
+
+                # Safety flush for very long continuous speech
+                if len(vad.speech_buffer) >= max_speech_samples:
+                    audio_queue.put(vad.speech_buffer.copy())
+                    vad.speech_buffer = np.zeros(0, dtype=np.float32)
+
+            elif vad.is_speaking:
+                # Silence after speech: keep buffering and count silence samples
+                vad.speech_buffer = np.concatenate([vad.speech_buffer, audio])
+                vad.silence_samples += len(audio)
+
+                if vad.silence_samples >= post_speech_silence_samples:
+                    # Enough silence detected — trigger transcription
+                    if len(vad.speech_buffer) >= min_speech_samples:
+                        audio_queue.put(vad.speech_buffer.copy())
+                    vad.speech_buffer = np.zeros(0, dtype=np.float32)
+                    vad.silence_samples = 0
+                    vad.is_speaking = False
         except Exception:
             log.exception("Exception in audio_callback")
 
