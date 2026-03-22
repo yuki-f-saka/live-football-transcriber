@@ -8,17 +8,34 @@ Usage:
 Quit: press Escape, or Ctrl+C in terminal.
 """
 
+import logging
 import queue
 import signal
 import sys
 import threading
-import time
 import numpy as np
 import sounddevice as sd
 import mlx_whisper
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import QApplication, QLabel, QWidget
+
+# Log to both terminal and file for post-crash inspection
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler("transcriber.log", encoding="utf-8"),
+    ],
+)
+log = logging.getLogger(__name__)
+
+# Catch unhandled exceptions in any thread and write them to the log
+def _handle_thread_exception(args):
+    log.critical("Unhandled exception in thread '%s'", args.thread.name, exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
+
+threading.excepthook = _handle_thread_exception
 
 # --- Audio / Model settings ---
 MODEL_SIZE      = "mlx-community/whisper-small.en-mlx"
@@ -128,15 +145,15 @@ class VadState:
 
 
 def main():
-    print(f"Loading model '{MODEL_SIZE}'...")
+    log.info("Loading model '%s'...", MODEL_SIZE)
     # Warm up the model (downloads from HuggingFace on first run)
     mlx_whisper.transcribe(np.zeros(16000, dtype=np.float32), path_or_hf_repo=MODEL_SIZE)
-    print("Model loaded.\n")
+    log.info("Model loaded.")
 
     device_index = find_device_index(DEVICE_NAME)
-    print(f"Input device [{device_index}]: {DEVICE_NAME}")
-    print(f"VAD mode  |  silence threshold: {POST_SPEECH_SILENCE_SECONDS}s  |  max chunk: {MAX_SPEECH_SECONDS}s")
-    print("Listening... (Escape or Ctrl+C to quit)\n")
+    log.info("Input device [%d]: %s", device_index, DEVICE_NAME)
+    log.info("VAD mode  |  silence threshold: %ss  |  max chunk: %ss", POST_SPEECH_SILENCE_SECONDS, MAX_SPEECH_SECONDS)
+    log.info("Listening... (Escape or Ctrl+C to quit)")
 
     app = QApplication(sys.argv)
 
@@ -165,11 +182,11 @@ def main():
 
     def audio_callback(indata, _frames, _time_info, status):
         if status:
-            print(f"[audio] {status}")
-
-        audio = indata[:, 0].copy()
-        rms = float(np.sqrt(np.mean(audio ** 2)))
-        is_speech = rms > SILENCE_RMS_THRESHOLD
+            log.warning("Audio stream status: %s", status)
+        try:
+            audio = indata[:, 0].copy()
+            rms = float(np.sqrt(np.mean(audio ** 2)))
+            is_speech = rms > SILENCE_RMS_THRESHOLD
 
         if is_speech:
             # Active speech: append to buffer and reset silence counter
@@ -194,6 +211,8 @@ def main():
                 vad.speech_buffer = np.zeros(0, dtype=np.float32)
                 vad.silence_samples = 0
                 vad.is_speaking = False
+        except Exception:
+            log.exception("Exception in audio_callback")
 
     def is_hallucination(text: str) -> bool:
         """Detect Whisper hallucinations: symbol-only output or repeated words."""
@@ -213,30 +232,32 @@ def main():
             audio_chunk = audio_queue.get()
             if audio_chunk is None:
                 break
+            try:
+                result = mlx_whisper.transcribe(
+                    audio_chunk,
+                    path_or_hf_repo=MODEL_SIZE,
+                    language="en",
+                )
 
-            result = mlx_whisper.transcribe(
-                audio_chunk,
-                path_or_hf_repo=MODEL_SIZE,
-                language="en",
-            )
+                # Skip segments where Whisper is not confident there is speech
+                segments = result.get("segments", [])
+                if segments:
+                    avg_no_speech = sum(s.get("no_speech_prob", 0) for s in segments) / len(segments)
+                    if avg_no_speech > 0.5:
+                        continue
 
-            # Skip segments where Whisper is not confident there is speech
-            segments = result.get("segments", [])
-            if segments:
-                avg_no_speech = sum(s.get("no_speech_prob", 0) for s in segments) / len(segments)
-                if avg_no_speech > 0.5:
-                    continue
-
-            text = result["text"].strip()
-            if text and not is_hallucination(text):
-                text_queue.put(text)
+                text = result["text"].strip()
+                if text and not is_hallucination(text):
+                    log.info(text)
+                    text_queue.put(text)
+            except Exception:
+                log.exception("Exception in transcription_worker")
 
     # Poll text_queue every 50ms and update the GUI
     def poll_text():
         try:
             while True:
                 text = text_queue.get_nowait()
-                print(f"[{time.strftime('%H:%M:%S')}] {text}")
                 window.show_text(text)
         except queue.Empty:
             pass
