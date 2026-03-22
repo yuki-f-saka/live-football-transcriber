@@ -31,8 +31,8 @@ REALTIME_MODEL       = "tiny.en"     # 途中経過の高速モデル
 
 # --- Overlay appearance ---
 FONT_SIZE            = 30
-FONT_COLOR_FINAL     = "#00e676"     # 確定テキストは明るいグリーン
-FONT_COLOR_PARTIAL   = "white"       # 途中経過はホワイト
+FONT_COLOR_FINAL     = "white"       # 確定テキスト
+FONT_COLOR_PARTIAL   = "white"       # 途中経過
 MAX_PARTIAL_CHARS    = 80            # 途中経過テキストの最大文字数（長い発話で字幕が溢れるのを防ぐ）
 BG_COLOR             = "#111111"
 BG_OPACITY           = 200
