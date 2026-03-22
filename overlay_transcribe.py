@@ -9,6 +9,7 @@ Quit: press Escape, or Ctrl+C in terminal.
 """
 
 import queue
+import signal
 import sys
 import threading
 import time
@@ -23,17 +24,22 @@ from PyQt6.QtWidgets import QApplication, QLabel, QWidget
 MODEL_SIZE      = "small.en"
 DEVICE_NAME     = "BlackHole 2ch"
 SAMPLE_RATE     = 16000
-CHUNK_SECONDS   = 3
-OVERLAP_SECONDS = 0.5
+
+# --- VAD settings ---
+SILENCE_RMS_THRESHOLD       = 0.01   # この値以下のRMSは無音とみなす
+POST_SPEECH_SILENCE_SECONDS = 0.4    # 発話終了後この秒数の無音で文字起こしをトリガー
+MIN_SPEECH_SECONDS          = 0.3    # これ未満の発話は無視する
+MAX_SPEECH_SECONDS          = 1.5    # 連続発話がこの秒数を超えたら強制的にフラッシュ
 
 # --- Overlay appearance ---
-FONT_SIZE            = 20
+FONT_SIZE            = 30
 FONT_COLOR           = "white"
 BG_COLOR             = "#111111"
 BG_OPACITY           = 200        # 0 (透明) 〜 255 (不透明)
 SUBTITLE_SECONDS     = 4.0        # 字幕が消えるまでの秒数
 SCREEN_MARGIN_Y      = 40         # 画面上端からの距離 (px)
 WINDOW_WIDTH_RATIO   = 0.65       # 画面幅に対するウィンドウ幅の比率
+SCREEN_INDEX         = 1          # 字幕を表示するスクリーン番号 (0=メイン, 1=外部ディスプレイ, ...)
 
 # ------------------------------
 
@@ -64,7 +70,12 @@ class SubtitleWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)  # フォーカスを奪わない
 
         # 画面サイズに合わせて配置
-        screen = QApplication.primaryScreen().availableGeometry()  # Dockを除いた領域
+        screens = QApplication.screens()
+        target = screens[SCREEN_INDEX] if SCREEN_INDEX < len(screens) else screens[0]
+        if SCREEN_INDEX >= len(screens):
+            print(f"[warn] SCREEN_INDEX={SCREEN_INDEX} が存在しません (検出: {len(screens)}画面)。0番を使用します。")
+        print(f"Using screen [{SCREEN_INDEX if SCREEN_INDEX < len(screens) else 0}]: {target.name()}")
+        screen = target.availableGeometry()  # Dockを除いた領域
         win_w = int(screen.width() * WINDOW_WIDTH_RATIO)
         win_h = 90
         x = screen.x() + (screen.width() - win_w) // 2
@@ -107,6 +118,14 @@ class SubtitleWindow(QWidget):
             QApplication.quit()
 
 
+class VadState:
+    """音声区間検出のための状態管理"""
+    def __init__(self):
+        self.is_speaking = False
+        self.speech_buffer: np.ndarray = np.zeros(0, dtype=np.float32)
+        self.silence_samples = 0
+
+
 def main():
     print(f"Loading model '{MODEL_SIZE}'...")
     model = WhisperModel(MODEL_SIZE, device="auto", compute_type="int8")
@@ -114,10 +133,18 @@ def main():
 
     device_index = find_device_index(DEVICE_NAME)
     print(f"Input device [{device_index}]: {DEVICE_NAME}")
-    print(f"Chunk: {CHUNK_SECONDS}s  |  Overlap: {OVERLAP_SECONDS}s")
+    print(f"VAD mode  |  silence threshold: {POST_SPEECH_SILENCE_SECONDS}s  |  max chunk: {MAX_SPEECH_SECONDS}s")
     print("Listening... (Escape or Ctrl+C to quit)\n")
 
     app = QApplication(sys.argv)
+
+    # Ctrl+C (SIGINT) を受け取ったら正常終了する
+    signal.signal(signal.SIGINT, lambda *_: QApplication.quit())
+    # app.exec() はC++ループなのでタイマーでPythonにシグナル処理の機会を与える
+    sigint_timer = QTimer()
+    sigint_timer.start(200)
+    sigint_timer.timeout.connect(lambda: None)
+
     window = SubtitleWindow()
     window.show()
     window.raise_()
@@ -127,37 +154,61 @@ def main():
 
     audio_queue: queue.Queue = queue.Queue()
     text_queue:  queue.Queue = queue.Queue()
-    buffer = np.zeros(0, dtype=np.float32)
-    chunk_samples   = int(CHUNK_SECONDS    * SAMPLE_RATE)
-    overlap_samples = int(OVERLAP_SECONDS  * SAMPLE_RATE)
+
+    post_speech_silence_samples = int(POST_SPEECH_SILENCE_SECONDS * SAMPLE_RATE)
+    min_speech_samples          = int(MIN_SPEECH_SECONDS * SAMPLE_RATE)
+    max_speech_samples          = int(MAX_SPEECH_SECONDS * SAMPLE_RATE)
+
+    vad = VadState()
 
     def audio_callback(indata, _frames, _time_info, status):
         if status:
             print(f"[audio] {status}")
-        audio_queue.put(indata[:, 0].copy())
+
+        audio = indata[:, 0].copy()
+        rms = float(np.sqrt(np.mean(audio ** 2)))
+        is_speech = rms > SILENCE_RMS_THRESHOLD
+
+        if is_speech:
+            # 発話中: バッファに追加、無音カウンタリセット
+            vad.is_speaking = True
+            vad.silence_samples = 0
+            vad.speech_buffer = np.concatenate([vad.speech_buffer, audio])
+
+            # 長時間連続発話のセーフティフラッシュ
+            if len(vad.speech_buffer) >= max_speech_samples:
+                audio_queue.put(vad.speech_buffer.copy())
+                vad.speech_buffer = np.zeros(0, dtype=np.float32)
+
+        elif vad.is_speaking:
+            # 発話後の無音: バッファに追加しつつ無音サンプル数を計上
+            vad.speech_buffer = np.concatenate([vad.speech_buffer, audio])
+            vad.silence_samples += len(audio)
+
+            if vad.silence_samples >= post_speech_silence_samples:
+                # 十分な無音 → 文字起こしトリガー
+                if len(vad.speech_buffer) >= min_speech_samples:
+                    audio_queue.put(vad.speech_buffer.copy())
+                vad.speech_buffer = np.zeros(0, dtype=np.float32)
+                vad.silence_samples = 0
+                vad.is_speaking = False
 
     def transcription_worker():
-        nonlocal buffer
         while True:
-            chunk = audio_queue.get()
-            if chunk is None:
+            audio_chunk = audio_queue.get()
+            if audio_chunk is None:
                 break
-            buffer = np.concatenate([buffer, chunk])
 
-            if len(buffer) >= chunk_samples:
-                audio_chunk = buffer[:chunk_samples].copy()
-                buffer = buffer[chunk_samples - overlap_samples:]
-
-                segments, _ = model.transcribe(
-                    audio_chunk,
-                    language="en",
-                    beam_size=1,
-                    vad_filter=True,
-                    vad_parameters={"min_silence_duration_ms": 300},
-                )
-                parts = [seg.text.strip() for seg in segments]
-                if parts:
-                    text_queue.put(" ".join(parts))
+            segments, _ = model.transcribe(
+                audio_chunk,
+                language="en",
+                beam_size=1,
+                vad_filter=True,
+                vad_parameters={"min_silence_duration_ms": 300},
+            )
+            parts = [seg.text.strip() for seg in segments]
+            if parts:
+                text_queue.put(" ".join(parts))
 
     # 100msごとにtext_queueを確認してGUIを更新
     def poll_text():
@@ -182,7 +233,7 @@ def main():
         samplerate=SAMPLE_RATE,
         dtype="float32",
         callback=audio_callback,
-        blocksize=int(SAMPLE_RATE * 0.5),
+        blocksize=int(SAMPLE_RATE * 0.05),  # 50ms ブロック: VAD応答性のため短く
     )
     stream.start()
 
