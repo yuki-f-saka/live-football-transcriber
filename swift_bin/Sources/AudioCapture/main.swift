@@ -1,7 +1,11 @@
+import AppKit
 import CoreGraphics
 import CoreMedia
 import Foundation
 import ScreenCaptureKit
+
+// Initialize CGS connection required by SCContentFilter
+_ = NSApplication.shared
 
 // MARK: - Argument parsing
 
@@ -73,6 +77,9 @@ final class StreamHandler: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
 
 let handler = StreamHandler()
 
+// Held at module scope to prevent ARC from deallocating the stream after Task completes
+var captureStream: SCStream?
+
 signal(SIGINT) { _ in
     fputs("[audio-capture] Stopped.\n", stderr)
     exit(0)
@@ -84,9 +91,18 @@ Task {
         let content = try await SCShareableContent.excludingDesktopWindows(
             false, onScreenWindowsOnly: true)
 
-        // Find the first window whose title contains the filter string
+        // Find the first window whose title contains the filter string,
+        // excluding terminal emulators (whose titles often echo the running command)
+        let terminalBundleIDs: Set<String> = [
+            "com.apple.Terminal",
+            "com.googlecode.iterm2",
+            "net.kovidgoyal.kitty",
+            "com.mitchellh.ghostty",
+        ]
         let targetWindow = content.windows.first { window in
             guard let title = window.title, !title.isEmpty else { return false }
+            if let bundleID = window.owningApplication?.bundleIdentifier,
+               terminalBundleIDs.contains(bundleID) { return false }
             return title.localizedCaseInsensitiveContains(titleFilter)
         }
 
@@ -98,9 +114,20 @@ Task {
             exit(1)
         }
 
-        fputs("[audio-capture] Capturing audio from: \(window.title ?? "unknown")\n", stderr)
+        guard let targetApp = window.owningApplication else {
+            fputs("[audio-capture] Could not get owning application.\n", stderr)
+            exit(1)
+        }
+        guard let display = content.displays.first else {
+            fputs("[audio-capture] No display found.\n", stderr)
+            exit(1)
+        }
 
-        let filter = SCContentFilter(desktopIndependentWindow: window)
+        fputs("[audio-capture] Capturing audio from: \(window.title ?? "unknown") (\(targetApp.applicationName))\n", stderr)
+
+        // desktopIndependentWindow does not deliver audio callbacks — use a display filter
+        // scoped to the target app instead
+        let filter = SCContentFilter(display: display, including: [targetApp], exceptingWindows: [])
 
         let config = SCStreamConfiguration()
         config.capturesAudio = true
@@ -109,6 +136,7 @@ Task {
         config.excludesCurrentProcessAudio = true
 
         let stream = SCStream(filter: filter, configuration: config, delegate: handler)
+        captureStream = stream  // retain at module scope
         try stream.addStreamOutput(handler, type: .audio, sampleHandlerQueue: .global())
         try await stream.startCapture()
 
