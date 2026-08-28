@@ -11,14 +11,24 @@ CLAUDE.ja.md is a Japanese translation of this file for the project owner to rea
 
 ---
 
-## Two implementations
+## Package layout
 
-| File | Approach | Key library | Characteristic |
-|---|---|---|---|
-| `overlay_transcribe.py` | VAD-based chunking | mlx-whisper (Metal GPU) | Low latency, has hallucination filter |
-| `overlay_streaming.py` | RealtimeSTT streaming | RealtimeSTT (CPU, tiny.en + small.en) | Displays partial text in real time |
+```
+football_transcriber/
+├── cli.py                    # entry point: football-transcriber [vad|streaming] [options]
+├── config.py                 # Settings dataclass (all constants) + JSON config file + model resolution
+├── app.py                    # OverlayApp: QApplication, SIGINT handling, text_queue → window
+├── overlay.py                # SubtitleWindow (PyQt6)
+├── transcriber.py            # VAD chunking + mlx-whisper backend  ("vad" mode)
+├── streaming_transcriber.py  # RealtimeSTT backend                 ("streaming" mode)
+├── audio.py                  # input device lookup
+└── text_filters.py           # is_hallucination()
+tests/                        # pytest (pure-Python units; no audio/GPU needed)
+overlay_transcribe.py         # thin wrapper == football-transcriber vad
+overlay_streaming.py          # thin wrapper == football-transcriber streaming
+```
 
-These are intentionally independent — shared logic is not abstracted. When modifying one, be aware of the divergence from the other.
+The two backends (`transcriber.py`, `streaming_transcriber.py`) are still intentionally separate implementations — only the overlay, config and app bootstrap are shared. When modifying one backend, check whether the other needs the same change.
 
 ---
 
@@ -28,71 +38,74 @@ These are intentionally independent — shared logic is not abstracted. When mod
 - BlackHole 2ch virtual audio driver installed
 - macOS Audio MIDI Setup configured with a Multi-Output Device (speakers + BlackHole 2ch)
 
-If these are not set up, the app will crash immediately with a device-not-found error.
+If the audio device is not set up, the app exits immediately with a device-not-found error listing available inputs (`--list-devices`).
 
 ---
 
 ## How to run
 
 ```bash
-python overlay_transcribe.py   # VAD mode (recommended)
-python overlay_streaming.py    # Streaming mode (shows partial text)
+pip install -e .                       # provides the `football-transcriber` command
+football-transcriber vad               # VAD mode (recommended)   == python overlay_transcribe.py
+football-transcriber streaming         # shows partial text       == python overlay_streaming.py
+football-transcriber --help
+football-transcriber --screen 0 --save # persist settings to the config file
+python -m pytest
 ```
 
 On first run, models are downloaded from HuggingFace — this takes a few minutes.
 
 ---
 
-## Architecture — thread model (overlay_transcribe.py)
+## Settings precedence
+
+`Settings` defaults (`config.py`) < config file `~/.config/football-transcriber/config.json` (or `--config PATH`) < CLI flags.
+`Settings.save_key()` updates a single key in the file without clobbering the rest. `--show-config` prints the effective settings.
+
+Model resolution (`Settings.resolved_model()`): short sizes (`tiny/base/small/medium`) map to `mlx-community/whisper-<size>.en-mlx`; streaming mode uses faster-whisper names (`small.en`).
+
+---
+
+## Architecture — thread model (vad mode)
 
 ```
-audio_callback (real-time, 50ms blocks)
+audio_callback (real-time, 50ms blocks) → RMS VAD
   └─ audio_queue (Queue)
        └─ transcription_worker (background thread)
-            └─ text_queue (Queue)
-                 └─ poll_text() (Qt timer, 50ms) → SubtitleWindow.show_text()
+            ├─ mlx_whisper.transcribe()
+            ├─ no_speech_prob / is_hallucination filters
+            └─ OverlayApp.push_final()
+                 └─ text_queue → poll (Qt timer, 50ms) → SubtitleWindow.show_text()
 ```
 
 **Never put blocking operations in `audio_callback` — it runs on a real-time thread.**
 
 ---
 
-## Key tuning constants
-
-### overlay_transcribe.py
+## Key tuning constants (`config.py` → `Settings`)
 
 ```python
-MODEL_SIZE = "mlx-community/whisper-small.en-mlx"  # switch to tiny.en for speed
-DEVICE_NAME = "BlackHole 2ch"
-SILENCE_RMS_THRESHOLD = 0.03   # intentionally high to filter crowd noise
-POST_SPEECH_SILENCE_SECONDS = 0.4  # silence duration that triggers transcription
-MIN_SPEECH_SECONDS = 0.3       # utterances shorter than this are ignored
-MAX_SPEECH_SECONDS = 1.5       # force-flush for long continuous speech
-SUBTITLE_SECONDS = 4.0         # auto-clear timer for displayed subtitle
-SCREEN_INDEX = 1               # 0 = main screen, 1 = external monitor
-```
-
-### overlay_streaming.py
-
-```python
-FINAL_MODEL = "small.en"       # high accuracy for finalized text
-REALTIME_MODEL = "tiny.en"     # fast model for partial updates
-MAX_PARTIAL_CHARS = 80         # cap to prevent UI overflow on long utterances
-SCREEN_INDEX = 1
+device = "BlackHole 2ch"
+silence_threshold = 0.03     # RMS; intentionally high to filter crowd noise    (--threshold)
+post_speech_silence = 0.4    # silence that triggers transcription              (--silence)
+min_speech = 0.3             # shorter utterances are ignored                    (--min-speech)
+max_speech = 1.5             # force-flush for continuous commentary             (--max-speech)
+max_partial_chars = 80       # streaming: cap partial text to avoid overflow
+subtitle_seconds = 4.0       # auto-clear timer                                  (--subtitle-seconds)
+screen = 1                   # 0 = main, 1 = external                            (--screen)
 ```
 
 ---
 
 ## Known issues / gotchas
 
-- **Whisper hallucination**: Crowd noise and BGM cause repeated words or symbol-only output. `overlay_transcribe.py` handles this via `is_hallucination()` and `no_speech_prob > 0.5` filtering. `overlay_streaming.py` has no hallucination filter (delegates to RealtimeSTT's VAD).
-- **requirements.txt is outdated**: Actual dependencies are `mlx-whisper` (not `faster-whisper`) and `RealtimeSTT`. System-level deps `ffmpeg` and `portaudio` must be installed via Homebrew.
-- **`SILENCE_RMS_THRESHOLD` sensitivity**: Optimal value varies by environment (quiet room vs. TV audio). Too low increases hallucinations.
-- **`MAX_SPEECH_SECONDS = 1.5`**: Commentary often runs continuously, so VAD may never detect silence. This constant force-flushes long utterances.
+- **Whisper hallucination**: Crowd noise and BGM cause repeated words or symbol-only output. VAD mode filters via `no_speech_prob > 0.5` and `is_hallucination()`. Streaming mode has no hallucination filter (VAD is delegated to RealtimeSTT/Silero).
+- **`silence_threshold` sensitivity**: Optimal value varies by environment. Too low increases hallucinations.
+- **`max_speech = 1.5`**: Commentary runs continuously, so VAD may never detect silence; this force-flushes long utterances.
 
 ---
 
 ## Logging
 
-- Logs written to `transcriber.log` and stdout simultaneously.
+- Logs written to `transcriber.log` (`--log-file`) and stdout simultaneously. Root level INFO, `football_transcriber.*` at DEBUG.
 - Thread exception handler is in place for post-crash diagnosis.

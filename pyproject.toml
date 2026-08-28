@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "live-football-transcriber"
+version = "0.2.0"
+description = "Real-time speech-to-text subtitle overlay for live football broadcasts (macOS, Apple Silicon)"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "sounddevice",
+    "PyQt6",
+    "mlx-whisper; sys_platform == 'darwin'",
+]
+
+[project.optional-dependencies]
+streaming = ["RealtimeSTT"]
+dev = ["pytest"]
+
+[project.scripts]
+football-transcriber = "football_transcriber.cli:main"
+
+[tool.setuptools]
+packages = ["football_transcriber"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

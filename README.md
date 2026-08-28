@@ -4,22 +4,20 @@ Real-time speech-to-text overlay for live football (soccer) broadcasts on macOS.
 
 Captures system audio and transcribes it using Whisper, displaying subtitles as a transparent overlay at the top of your screen — without interrupting your video player or any other window.
 
-Two scripts are available depending on your preference:
+Two transcription modes are available:
 
-| Script | Description |
+| Mode | Description |
 |---|---|
-| `overlay_transcribe.py` | VAD-based chunking + mlx-whisper (Metal GPU). Low latency, no partial display. |
-| `overlay_streaming.py` | RealtimeSTT streaming. Shows partial text in real-time while speaking, confirmed text in green. |
-
-![demo](https://via.placeholder.com/800x120/111111/ffffff?text=Real-time+subtitle+overlay)
+| `vad` (`overlay_transcribe.py`) | VAD-based chunking + mlx-whisper (Metal GPU). Low latency, hallucination filter. **Recommended.** |
+| `streaming` (`overlay_streaming.py`) | RealtimeSTT streaming. Shows partial text in real-time while speaking. |
 
 ## Requirements
 
-- macOS (Apple Silicon recommended)
-- Python 3.9+
+- macOS (Apple Silicon required for `vad` mode — mlx-whisper uses the Metal GPU)
+- Python 3.10+
 - [BlackHole 2ch](https://existential.audio/blackhole/) — virtual audio driver to capture system audio
 - [ffmpeg](https://ffmpeg.org/)
-- [portaudio](https://www.portaudio.com/) — required for `overlay_streaming.py`
+- [portaudio](https://www.portaudio.com/) — required for `streaming` mode
 
 ```bash
 brew install ffmpeg portaudio
@@ -30,7 +28,8 @@ brew install ffmpeg portaudio
 ```bash
 git clone https://github.com/yuki-f-saka/live-football-transcriber.git
 cd live-football-transcriber
-pip install -r requirements.txt
+pip install -e .              # core (vad mode) — installs the `football-transcriber` command
+pip install -e ".[streaming]" # also RealtimeSTT for streaming mode
 ```
 
 ## Audio Routing Setup (one-time)
@@ -45,60 +44,39 @@ To capture system audio while still hearing it through your speakers, create a *
 
 ## Usage
 
-Play your football broadcast, then run either script:
-
-### overlay_transcribe.py — VAD + mlx-whisper
+Play your football broadcast, then:
 
 ```bash
-python overlay_transcribe.py
-```
+football-transcriber                 # vad mode (default)
+football-transcriber streaming       # streaming mode with partial text
+football-transcriber --help          # all options
+football-transcriber --list-devices  # find your input device
 
-- Uses Apple Silicon Metal GPU via [mlx-whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper) for fast inference
-- Transcribes after each speech segment ends (VAD-detected silence)
-- Subtitle appears in white, disappears after 4 seconds
-
-### overlay_streaming.py — RealtimeSTT streaming
-
-```bash
+# The old entry points still work and accept the same flags:
+python overlay_transcribe.py --screen 0
 python overlay_streaming.py
 ```
 
-- Shows partial (in-progress) text in **white** as you speak
-- When the utterance is finalized, text turns **green** and auto-clears after 4 seconds
-- Uses two models internally: `tiny.en` for real-time updates, `small.en` for final accuracy
-- Feels significantly more real-time than chunk-based approaches
-
-**Quit:** press `Escape`, or `Ctrl+C` in the terminal.
-
 ## Configuration
 
-### overlay_transcribe.py
+Settings resolve as: built-in defaults → config file → CLI flags. Use `--show-config` to print the effective values and `--save` to persist them.
 
-| Variable | Default | Description |
-|---|---|---|
-| `MODEL_SIZE` | `mlx-community/whisper-small.en-mlx` | mlx-whisper model (`tiny.en` or `small.en` variants) |
-| `SILENCE_RMS_THRESHOLD` | `0.03` | RMS level below which audio is treated as silence |
-| `POST_SPEECH_SILENCE_SECONDS` | `0.4` | Silence duration after speech to trigger transcription |
-| `MAX_SPEECH_SECONDS` | `1.5` | Force-flush after this many seconds of continuous speech |
-| `FONT_SIZE` | `30` | Subtitle font size |
-| `SUBTITLE_SECONDS` | `4.0` | How long each subtitle stays on screen |
-| `SCREEN_INDEX` | `1` | Screen to display overlay on (0 = main, 1 = external) |
-
-### overlay_streaming.py
-
-| Variable | Default | Description |
-|---|---|---|
-| `FINAL_MODEL` | `small.en` | Model for finalized transcription (accuracy) |
-| `REALTIME_MODEL` | `tiny.en` | Model for partial real-time updates (speed) |
-| `MAX_PARTIAL_CHARS` | `80` | Max characters shown for partial text (prevents overflow) |
-| `FONT_COLOR_PARTIAL` | `white` | Color of in-progress text |
-| `FONT_COLOR_FINAL` | `#00e676` | Color of finalized text (bright green) |
-| `SUBTITLE_SECONDS` | `4.0` | How long finalized text stays on screen |
-| `SCREEN_INDEX` | `1` | Screen to display overlay on (0 = main, 1 = external) |
+| Setting | Flag | Default | Description |
+|---|---|---|---|
+| `device` | `--device` | `BlackHole 2ch` | Input device name (substring) |
+| `model` | `--model` | `small` | `tiny`/`base`/`small`/`medium` or a full model name |
+| `silence_threshold` | `--threshold` | `0.03` | RMS below which audio is treated as silence (vad) |
+| `post_speech_silence` | `--silence` | `0.4` | Silence after speech that triggers transcription (s) |
+| `min_speech` | `--min-speech` | `0.3` | Ignore utterances shorter than this (s) |
+| `max_speech` | `--max-speech` | `1.5` | Force-flush after this many seconds of continuous speech (vad) |
+| `font_size` | `--font-size` | `30` | Subtitle font size |
+| `subtitle_seconds` | `--subtitle-seconds` | `4.0` | How long each subtitle stays on screen |
+| `screen` | `--screen` | `1` | Screen to display on (0 = main, 1 = external) |
+| `max_partial_chars` | — | `80` | Max characters of partial text (streaming) |
 
 ## How It Works
 
-### overlay_transcribe.py
+### vad mode
 
 ```
 System audio → BlackHole 2ch
@@ -111,24 +89,30 @@ System audio → BlackHole 2ch
              mlx-whisper (Metal GPU)
              + hallucination filter
                     ↓
-             PyQt6 overlay (white text)
+             PyQt6 overlay
 ```
 
-### overlay_streaming.py
+### streaming mode
 
 ```
 System audio → BlackHole 2ch
                     ↓
              RealtimeSTT
-             (Silero VAD + PyAudio)
+             (Silero VAD)
               ┌─────┴──────┐
          tiny.en        small.en
         (realtime)       (final)
               │              │
         partial text    final text
-        (white, live)  (green, 4s)
                     ↓
              PyQt6 overlay
+```
+
+## Development
+
+```bash
+pip install -e ".[dev]"
+python -m pytest
 ```
 
 ## License

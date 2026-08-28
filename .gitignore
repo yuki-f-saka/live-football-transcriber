@@ -12,3 +12,8 @@ __pycache__/
 
 # Swift build artifacts
 swift_bin/.build/
+
+# Packaging
+*.egg-info/
+build/
+dist/
