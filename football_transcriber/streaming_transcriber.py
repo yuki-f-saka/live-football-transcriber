@@ -16,6 +16,8 @@ import time
 from .app import OverlayApp
 from .audio import find_device_index
 from .config import Settings
+from .text_filters import looks_like_prompt_echo
+from .vocabulary import Vocabulary
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +32,11 @@ def run(settings: Settings) -> int:
     log.info("Final model: %s  |  Realtime model: %s", final_model, realtime_model)
     log.info("Listening... (Escape or Ctrl+C to quit)")
 
+    vocab = Vocabulary(settings.language, settings.player_names(), enabled=settings.vocabulary)
+    prompt = vocab.prompt
+    if prompt:
+        log.info("Vocabulary prompt: %s", prompt)
+
     app = OverlayApp(settings)
     app.window.show_partial("▶ Overlay active — loading models...")
 
@@ -39,7 +46,7 @@ def run(settings: Settings) -> int:
         text = text.strip()
         if text:
             # Show only the trailing N characters to prevent overflow during long speech
-            app.push_partial(text[-max_partial:])
+            app.push_partial(vocab.correct(text)[-max_partial:])
 
     log.info("Loading models (this may take a moment on first run)...")
     recorder = AudioToTextRecorder(
@@ -61,6 +68,8 @@ def run(settings: Settings) -> int:
         beam_size_realtime=1,
         spinner=False,
         no_log_file=True,
+        initial_prompt=prompt,
+        initial_prompt_realtime=prompt,
     )
     log.info("Models loaded.")
 
@@ -72,6 +81,9 @@ def run(settings: Settings) -> int:
             text = recorder.text()
             if text and text.strip():
                 text = text.strip()
+                if looks_like_prompt_echo(text, prompt):
+                    continue
+                text = vocab.correct(text)
                 log.info("[%s] %s", time.strftime("%H:%M:%S"), text)
                 app.push_final(text)
 
