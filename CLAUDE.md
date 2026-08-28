@@ -22,13 +22,14 @@ football_transcriber/
 ├── transcriber.py            # VAD chunking + mlx-whisper backend  ("vad" mode)
 ├── streaming_transcriber.py  # RealtimeSTT backend                 ("streaming" mode)
 ├── audio.py                  # input device lookup
-└── text_filters.py           # is_hallucination()
+├── vocabulary.py             # Whisper initial_prompt + term/player-name corrections
+└── text_filters.py           # is_hallucination(), looks_like_prompt_echo()
 tests/                        # pytest (pure-Python units; no audio/GPU needed)
 overlay_transcribe.py         # thin wrapper == football-transcriber vad
 overlay_streaming.py          # thin wrapper == football-transcriber streaming
 ```
 
-The two backends (`transcriber.py`, `streaming_transcriber.py`) are still intentionally separate implementations — only the overlay, config and app bootstrap are shared. When modifying one backend, check whether the other needs the same change.
+The two backends (`transcriber.py`, `streaming_transcriber.py`) are still intentionally separate implementations — only the overlay, config, app bootstrap and vocabulary are shared. When modifying one backend, check whether the other needs the same change.
 
 ---
 
@@ -49,6 +50,7 @@ pip install -e .                       # provides the `football-transcriber` com
 football-transcriber vad               # VAD mode (recommended)   == python overlay_transcribe.py
 football-transcriber streaming         # shows partial text       == python overlay_streaming.py
 football-transcriber --help
+football-transcriber vad --players "Haaland,Salah,De Bruyne"   # boost + auto-correct names
 football-transcriber --screen 0 --save # persist settings to the config file
 python -m pytest
 ```
@@ -72,9 +74,9 @@ Model resolution (`Settings.resolved_model()`): short sizes (`tiny/base/small/me
 audio_callback (real-time, 50ms blocks) → RMS VAD
   └─ audio_queue (Queue)
        └─ transcription_worker (background thread)
-            ├─ mlx_whisper.transcribe()
-            ├─ no_speech_prob / is_hallucination filters
-            └─ OverlayApp.push_final()
+            ├─ mlx_whisper.transcribe(initial_prompt=vocab.prompt)
+            ├─ no_speech_prob / is_hallucination / looks_like_prompt_echo filters
+            └─ vocab.correct()  →  OverlayApp.push_final()
                  └─ text_queue → poll (Qt timer, 50ms) → SubtitleWindow.show_text()
 ```
 
@@ -99,7 +101,9 @@ screen = 1                   # 0 = main, 1 = external                           
 
 ## Known issues / gotchas
 
-- **Whisper hallucination**: Crowd noise and BGM cause repeated words or symbol-only output. VAD mode filters via `no_speech_prob > 0.5` and `is_hallucination()`. Streaming mode has no hallucination filter (VAD is delegated to RealtimeSTT/Silero).
+- **Whisper hallucination**: Crowd noise and BGM cause repeated words or symbol-only output. VAD mode filters via `no_speech_prob > 0.5`, `is_hallucination()` and `looks_like_prompt_echo()` (Whisper sometimes parrots the `initial_prompt` on silence). Streaming mode only applies the prompt-echo check (VAD is delegated to RealtimeSTT/Silero).
+- **`initial_prompt` on short chunks**: 1.5 s chunks with a long prompt can increase prompt echoes; keep `FOOTBALL_TERMS_*` short. `--no-vocab` disables it.
+- **Player-name fuzzy correction only handles Latin script** (`_WORD_RE` in `vocabulary.py`); Japanese names are only boosted via the prompt.
 - **`silence_threshold` sensitivity**: Optimal value varies by environment. Too low increases hallucinations.
 - **`max_speech = 1.5`**: Commentary runs continuously, so VAD may never detect silence; this force-flushes long utterances.
 

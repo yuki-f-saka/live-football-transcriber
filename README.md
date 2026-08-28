@@ -11,6 +11,11 @@ Two transcription modes are available:
 | `vad` (`overlay_transcribe.py`) | VAD-based chunking + mlx-whisper (Metal GPU). Low latency, hallucination filter. **Recommended.** |
 | `streaming` (`overlay_streaming.py`) | RealtimeSTT streaming. Shows partial text in real-time while speaking. |
 
+## Features
+
+- **Football vocabulary**: Whisper prompt hints + auto-correction of terms and player names (`--players "Haaland,Salah"`)
+- All settings via CLI flags or `~/.config/football-transcriber/config.json`
+
 ## Requirements
 
 - macOS (Apple Silicon required for `vad` mode — mlx-whisper uses the Metal GPU)
@@ -57,6 +62,17 @@ python overlay_transcribe.py --screen 0
 python overlay_streaming.py
 ```
 
+Examples:
+
+```bash
+# Boost recognition of the players on the pitch (also fixes "Harland" → "Haaland")
+football-transcriber --players "Haaland,Salah,De Bruyne"
+football-transcriber --players-file squad.txt        # one name per line
+
+# Save the current flags as defaults (~/.config/football-transcriber/config.json)
+football-transcriber --screen 0 --players "Haaland,Salah" --save
+```
+
 ## Configuration
 
 Settings resolve as: built-in defaults → config file → CLI flags. Use `--show-config` to print the effective values and `--save` to persist them.
@@ -69,6 +85,8 @@ Settings resolve as: built-in defaults → config file → CLI flags. Use `--sho
 | `post_speech_silence` | `--silence` | `0.4` | Silence after speech that triggers transcription (s) |
 | `min_speech` | `--min-speech` | `0.3` | Ignore utterances shorter than this (s) |
 | `max_speech` | `--max-speech` | `1.5` | Force-flush after this many seconds of continuous speech (vad) |
+| `vocabulary` | `--no-vocab` | on | Football prompt hints + corrections |
+| `players` | `--players`, `--players-file` | — | Player/team names to boost and auto-correct |
 | `font_size` | `--font-size` | `30` | Subtitle font size |
 | `subtitle_seconds` | `--subtitle-seconds` | `4.0` | How long each subtitle stays on screen |
 | `screen` | `--screen` | `1` | Screen to display on (0 = main, 1 = external) |
@@ -87,7 +105,9 @@ System audio → BlackHole 2ch
              audio_queue
                     ↓
              mlx-whisper (Metal GPU)
+             + football prompt
              + hallucination filter
+             + term / name correction
                     ↓
              PyQt6 overlay
 ```
@@ -103,7 +123,7 @@ System audio → BlackHole 2ch
          tiny.en        small.en
         (realtime)       (final)
               │              │
-        partial text    final text
+        partial text    final text (+ corrections)
                     ↓
              PyQt6 overlay
 ```

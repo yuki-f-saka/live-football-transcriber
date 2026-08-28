@@ -22,7 +22,8 @@ import sounddevice as sd
 from .app import OverlayApp
 from .audio import find_device_index
 from .config import Settings
-from .text_filters import is_hallucination
+from .text_filters import is_hallucination, looks_like_prompt_echo
+from .vocabulary import Vocabulary
 
 log = logging.getLogger(__name__)
 
@@ -52,6 +53,11 @@ def run(settings: Settings) -> int:
         settings.post_speech_silence, settings.max_speech,
     )
     log.info("Listening... (Escape or Ctrl+C to quit)")
+
+    vocab = Vocabulary(settings.language, settings.player_names(), enabled=settings.vocabulary)
+    prompt = vocab.prompt
+    if prompt:
+        log.info("Vocabulary prompt: %s", prompt)
 
     app = OverlayApp(settings)
     # Show startup message to confirm overlay position
@@ -111,6 +117,7 @@ def run(settings: Settings) -> int:
                     audio_chunk,
                     path_or_hf_repo=model,
                     language=settings.language,
+                    initial_prompt=prompt,
                 )
 
                 # Skip segments where Whisper is not confident there is speech
@@ -121,9 +128,11 @@ def run(settings: Settings) -> int:
                         continue
 
                 text = result["text"].strip()
-                if text and not is_hallucination(text):
-                    log.info(text)
-                    app.push_final(text)
+                if not text or is_hallucination(text) or looks_like_prompt_echo(text, prompt):
+                    continue
+                text = vocab.correct(text)
+                log.info(text)
+                app.push_final(text)
             except Exception:
                 log.exception("Exception in transcription_worker")
 
