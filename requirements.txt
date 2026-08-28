@@ -1,4 +1,8 @@
-faster-whisper
+# Core (VAD mode): Apple Silicon / Metal GPU
+numpy
 sounddevice
 PyQt6
-numpy
+mlx-whisper
+
+# Streaming mode (optional): also needs `brew install portaudio`
+RealtimeSTT

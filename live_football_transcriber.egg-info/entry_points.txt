@@ -1,0 +1,2 @@
+[console_scripts]
+football-transcriber = football_transcriber.cli:main
