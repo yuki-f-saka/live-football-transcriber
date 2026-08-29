@@ -51,6 +51,7 @@ football-transcriber vad               # VAD mode (recommended)   == python over
 football-transcriber streaming         # shows partial text       == python overlay_streaming.py
 football-transcriber --help
 football-transcriber vad --players "Haaland,Salah,De Bruyne"   # boost + auto-correct names
+football-transcriber vad --lang ja --screen 0 --players "三笘,久保"
 football-transcriber --screen 0 --gain 1.5 --save    # persist settings to the config file
 python -m pytest
 ```
@@ -67,7 +68,7 @@ Runtime keys (typed in the terminal; the overlay itself is click-through and nev
 `Settings` defaults (`config.py`) < config file `~/.config/football-transcriber/config.json` (or `--config PATH`) < CLI flags.
 `Settings.save_key()` updates a single key in the file without clobbering the rest (used for gain). `--show-config` prints the effective settings.
 
-Model resolution (`Settings.resolved_model()`): short sizes (`tiny/base/small/medium`) map to `mlx-community/whisper-<size>.en-mlx`; streaming mode uses faster-whisper names (`small.en`).
+Model resolution (`Settings.resolved_model()`): short sizes (`tiny/base/small/medium/large`) map to `mlx-community/whisper-<size>.en-mlx` for English and multilingual `whisper-<size>-mlx` otherwise; streaming mode maps to faster-whisper names (`small.en` / `small`). Japanese defaults to `medium`.
 
 ---
 
@@ -109,6 +110,7 @@ gain = 1.0                   # input gain, 0..5                                 
 ## Known issues / gotchas
 
 - **Whisper hallucination**: Crowd noise and BGM cause repeated words or symbol-only output. VAD mode filters via `no_speech_prob > 0.5`, `is_hallucination()` and `looks_like_prompt_echo()` (Whisper sometimes parrots the `initial_prompt` on silence). Streaming mode only applies the prompt-echo check (VAD is delegated to RealtimeSTT/Silero).
+- **CJK languages** use a 2-character minimum in `is_hallucination()` (`Settings.min_alpha_chars()`) so short words like `ゴール` are not dropped.
 - **`initial_prompt` on short chunks**: 1.5 s chunks with a long prompt can increase prompt echoes; keep `FOOTBALL_TERMS_*` short. `--no-vocab` disables it.
 - **Player-name fuzzy correction only handles Latin script** (`_WORD_RE` in `vocabulary.py`); Japanese names are only boosted via the prompt.
 - **`silence_threshold` sensitivity**: Optimal value varies by environment. Too low increases hallucinations. Runtime gain (`+`/`-`) effectively shifts it.
