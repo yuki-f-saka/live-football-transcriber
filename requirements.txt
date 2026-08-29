@@ -3,6 +3,7 @@ numpy
 sounddevice
 PyQt6
 mlx-whisper
+pyobjc-framework-Cocoa   # overlay above fullscreen apps
 
 # Streaming mode (optional): also needs `brew install portaudio`
 RealtimeSTT
