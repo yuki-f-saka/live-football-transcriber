@@ -6,14 +6,27 @@
 
 ---
 
-## 2つの実装
+## パッケージ構成
 
-| ファイル | アプローチ | 主要ライブラリ | 特徴 |
-|---|---|---|---|
-| `overlay_transcribe.py` | VAD チャンキング | mlx-whisper（Metal GPU） | 低レイテンシ、hallucination フィルタあり |
-| `overlay_streaming.py` | RealtimeSTT ストリーミング | RealtimeSTT（CPU、tiny.en + small.en） | partial テキストをリアルタイム表示 |
+```
+football_transcriber/
+├── cli.py                    # エントリポイント: football-transcriber [vad|streaming] [options]
+├── config.py                 # Settings dataclass（全定数）+ JSON 設定ファイル + モデル名解決
+├── app.py                    # OverlayApp: QApplication、SIGINT 処理、text_queue → window、ゲイン/キー操作の配線
+├── overlay.py                # SubtitleWindow（PyQt6）+ ステータスバッジ
+├── transcriber.py            # VAD チャンキング + mlx-whisper バックエンド（"vad" モード）
+├── streaming_transcriber.py  # RealtimeSTT バックエンド（"streaming" モード）
+├── audio.py                  # デバイス検索、Gain、KeyboardController（ターミナルキー入力）
+├── vocabulary.py             # Whisper initial_prompt + 用語/選手名補正
+├── text_filters.py           # is_hallucination()、looks_like_prompt_echo()
+├── highlights.py             # キーワード → イベント検出とアクション（ログ/通知/音）
+└── macos.py                  # PyObjC: フルスクリーンアプリ上 / 全 Space に表示
+tests/                        # pytest（純 Python の単体テスト。音声/GPU 不要）
+overlay_transcribe.py         # 薄いラッパー == football-transcriber vad
+overlay_streaming.py          # 薄いラッパー == football-transcriber streaming
+```
 
-2つは意図的に独立した実装になっており、共通ロジックは抽象化されていない。片方を修正するときは、もう片方との差異に注意。
+2つのバックエンド（`transcriber.py`、`streaming_transcriber.py`）は引き続き意図的に独立した実装。共有しているのはオーバーレイ、設定、用語辞書、ハイライト、ゲイン周りのみ。片方を修正するときは、もう片方にも同じ変更が必要か確認すること。
 
 ---
 
@@ -22,72 +35,92 @@
 - macOS + Apple Silicon（mlx-whisper は Metal GPU 必須）
 - BlackHole 2ch バーチャルオーディオドライバーがインストール済みであること
 - macOS の「Audio MIDI 設定」で Multi-Output Device（スピーカー + BlackHole 2ch）が構成済みであること
+- フルスクリーン上表示には `pyobjc-framework-Cocoa`（任意。無ければ警告のみ）
 
-これらが未構成だと、デバイスが見つからず起動直後にクラッシュする。
+オーディオデバイスが未構成だと、利用可能な入力一覧（`--list-devices`）を表示して即終了する。
 
 ---
 
 ## 起動方法
 
 ```bash
-python overlay_transcribe.py   # VAD モード（推奨）
-python overlay_streaming.py    # ストリーミングモード（partial テキスト表示）
+pip install -e .                       # `football-transcriber` コマンドが使えるようになる
+football-transcriber vad               # VAD モード（推奨）        == python overlay_transcribe.py
+football-transcriber streaming         # partial テキスト表示      == python overlay_streaming.py
+football-transcriber --help
+football-transcriber vad --lang ja --screen 0 --players "三笘,久保"
+football-transcriber vad --highlights goal,penalty --notify
+football-transcriber --screen 0 --gain 1.5 --save    # 設定ファイルに保存
+python -m pytest
 ```
 
 初回起動時は HuggingFace からモデルをダウンロードするため数分かかる。
 
+実行中のキー操作（ターミナルで入力。オーバーレイ自体はクリック透過でフォーカスを持たない）:
+`+`/`-`/↑/↓ = 入力ゲイン、`0` = リセット、`m` = ミュート、`q`/Esc = 終了。ゲイン変更は即座に保存される。
+
 ---
 
-## アーキテクチャ — スレッドモデル（overlay_transcribe.py）
+## 設定の優先順位
+
+`Settings` のデフォルト（`config.py`）< 設定ファイル `~/.config/football-transcriber/config.json`（または `--config PATH`）< CLI フラグ。
+`Settings.save_key()` は他のキーを壊さずに1キーだけ更新する（ゲインの保存に使用）。`--show-config` で有効な設定を表示。
+
+モデル名解決（`Settings.resolved_model()`）: 短縮サイズ（`tiny/base/small/medium/large`）は英語なら `mlx-community/whisper-<size>.en-mlx`、それ以外は多言語の `whisper-<size>-mlx` に対応。streaming モードは faster-whisper 名（`small.en` / `small`）。日本語のデフォルトは `medium`。
+
+---
+
+## アーキテクチャ — スレッドモデル（vad モード）
 
 ```
-audio_callback（リアルタイム、50ms ブロック）
+audio_callback（リアルタイム、50ms ブロック）→ Gain.apply() → RMS VAD
   └─ audio_queue（Queue）
        └─ transcription_worker（バックグラウンドスレッド）
-            └─ text_queue（Queue）
-                 └─ poll_text()（Qt タイマー、50ms）→ SubtitleWindow.show_text()
+            ├─ mlx_whisper.transcribe(initial_prompt=vocab.prompt)
+            ├─ no_speech_prob / is_hallucination / looks_like_prompt_echo フィルタ
+            ├─ vocab.correct()  →  OverlayApp.push_final()
+            └─ highlights.handle()
+                 └─ text_queue → poll（Qt タイマー、50ms）→ SubtitleWindow.show_text()
+KeyboardController（スレッド、stdin cbreak）→ Gain.set() → push_status() + Settings.save_key("gain")
 ```
 
-**`audio_callback` はリアルタイムスレッドで動作するため、ブロッキング処理を入れてはいけない。**
+streaming モードも sounddevice で取り込み（`use_microphone=False`）、int16 PCM を `AudioToTextRecorder.feed_audio()` に渡すことで同じ Gain が効く。
+
+**`audio_callback` はリアルタイムスレッドで動作するため、ブロッキング処理を入れてはいけない。**（ゲイン保存のファイル I/O はキーボードスレッドで行い、音声スレッドでは行わない。）
 
 ---
 
-## 主要チューニング定数
-
-### overlay_transcribe.py
+## 主要チューニング定数（`config.py` → `Settings`）
 
 ```python
-MODEL_SIZE = "mlx-community/whisper-small.en-mlx"  # 速度優先なら tiny.en に切り替え可
-DEVICE_NAME = "BlackHole 2ch"
-SILENCE_RMS_THRESHOLD = 0.03   # 観客ノイズをフィルタするため意図的に高め
-POST_SPEECH_SILENCE_SECONDS = 0.4  # この長さの無音で文字起こしをトリガー
-MIN_SPEECH_SECONDS = 0.3       # これより短い発話は無視
-MAX_SPEECH_SECONDS = 1.5       # 長い連続発話を強制フラッシュ
-SUBTITLE_SECONDS = 4.0         # 字幕の自動クリアまでの秒数
-SCREEN_INDEX = 1               # 0 = メインスクリーン、1 = 外部モニター
-```
-
-### overlay_streaming.py
-
-```python
-FINAL_MODEL = "small.en"       # 確定テキスト用（精度重視）
-REALTIME_MODEL = "tiny.en"     # partial テキスト用（速度重視）
-MAX_PARTIAL_CHARS = 80         # 長い発話による UI はみ出しを防ぐ文字数上限
-SCREEN_INDEX = 1
+device = "BlackHole 2ch"
+silence_threshold = 0.03     # RMS。観客ノイズをフィルタするため意図的に高め       (--threshold)
+post_speech_silence = 0.4    # この長さの無音で文字起こしをトリガー               (--silence)
+min_speech = 0.3             # これより短い発話は無視                             (--min-speech)
+max_speech = 1.5             # 連続する実況を強制フラッシュ                       (--max-speech)
+max_partial_chars = 80       # streaming: partial テキストの文字数上限
+subtitle_seconds = 4.0       # 自動クリアまでの秒数                               (--subtitle-seconds)
+screen = 1                   # 0 = メイン、1 = 外部モニター                       (--screen)
+gain = 1.0                   # 入力ゲイン 0〜5                                    (--gain, +/- キー)
+highlight_cooldown = 10.0    # 同じイベントが再発火するまでの秒数
 ```
 
 ---
 
 ## 既知の問題 / 注意事項
 
-- **Whisper hallucination（幻覚）**: 観客ノイズや BGM により、繰り返し語や記号のみのテキストが生成されることがある。`overlay_transcribe.py` では `is_hallucination()` と `no_speech_prob > 0.5` フィルタで対応済み。`overlay_streaming.py` には hallucination フィルタなし（RealtimeSTT の VAD に委任）。
-- **requirements.txt が実態と乖離**: 実際に必要なのは `mlx-whisper`（`faster-whisper` ではない）と `RealtimeSTT`。システムレベルでは `ffmpeg` と `portaudio` を Homebrew でインストールする必要がある。
-- **`SILENCE_RMS_THRESHOLD` の調整**: 最適値は環境（静かな部屋 vs. テレビ音声）によって異なる。低くしすぎると hallucination が増える。
-- **`MAX_SPEECH_SECONDS = 1.5`**: 実況は連続発話が多く VAD が無音を検出できないことがあるため、長い発話を強制的にフラッシュするための定数。
+- **Whisper hallucination（幻覚）**: 観客ノイズや BGM により、繰り返し語や記号のみのテキストが生成されることがある。VAD モードは `no_speech_prob > 0.5`、`is_hallucination()`、`looks_like_prompt_echo()`（無音時に Whisper が `initial_prompt` をそのまま出力する現象）でフィルタ。streaming モードはプロンプト反復チェックのみ（VAD は RealtimeSTT/Silero に委任）。
+- **短いチャンクへの `initial_prompt`**: 1.5 秒チャンクに長いプロンプトを与えるとプロンプト反復が増えることがある。`FOOTBALL_TERMS_*` は短く保つこと。`--no-vocab` で無効化可能。
+- **選手名のファジー補正はラテン文字のみ対応**（`vocabulary.py` の `_WORD_RE`）。日本語の名前はプロンプトによる補強のみ。
+- **`silence_threshold` の調整**: 最適値は環境によって異なる。低くしすぎると hallucination が増える。実行中のゲイン（`+`/`-`）で実質的に閾値をずらせる。
+- **`max_speech = 1.5`**: 実況は連続発話が多く VAD が無音を検出できないことがあるため、長い発話を強制的にフラッシュする。
+- **フルスクリーン上表示**は `show()` 後に `NSWindowCollectionBehaviorFullScreenAuxiliary` + `NSScreenSaverWindowLevel` を適用して実現。Qt がネイティブウィンドウを作り直した場合（画面構成変更など）は再適用が必要になる。
+- **キー操作には TTY が必要**: stdin がターミナルでない場合（IDE/launchd から起動）はゲインを `--gain` でしか設定できない。
 
 ---
 
 ## ログ
 
-- `transcriber.log` にファイル出力（stdout にも同時出力）
+- `transcriber.log`（`--log-file`）にファイル出力（stdout にも同時出力）。ルートは INFO、`football_transcriber.*` は DEBUG。
+- ハイライトのマーカーは `highlights.log`（`--highlight-log`）。
 - スレッド例外ハンドラがあり、クラッシュ後の原因診断に利用できる。
