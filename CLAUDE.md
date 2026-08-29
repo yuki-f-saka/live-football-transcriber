@@ -24,13 +24,14 @@ football_transcriber/
 ├── audio.py                  # device lookup, Gain, KeyboardController (terminal keys)
 ├── vocabulary.py             # Whisper initial_prompt + term/player-name corrections
 ├── text_filters.py           # is_hallucination(), looks_like_prompt_echo()
+├── highlights.py             # keyword → event detection with actions (log/notify/sound)
 └── macos.py                  # PyObjC: overlay over fullscreen apps / all Spaces
 tests/                        # pytest (pure-Python units; no audio/GPU needed)
 overlay_transcribe.py         # thin wrapper == football-transcriber vad
 overlay_streaming.py          # thin wrapper == football-transcriber streaming
 ```
 
-The two backends (`transcriber.py`, `streaming_transcriber.py`) are still intentionally separate implementations — only the overlay, config, app bootstrap, vocabulary and gain plumbing are shared. When modifying one backend, check whether the other needs the same change.
+The two backends (`transcriber.py`, `streaming_transcriber.py`) are still intentionally separate implementations — only the overlay, config, app bootstrap, vocabulary, highlights and gain plumbing are shared. When modifying one backend, check whether the other needs the same change.
 
 ---
 
@@ -54,6 +55,7 @@ football-transcriber streaming         # shows partial text       == python over
 football-transcriber --help
 football-transcriber vad --players "Haaland,Salah,De Bruyne"   # boost + auto-correct names
 football-transcriber vad --lang ja --screen 0 --players "三笘,久保"
+football-transcriber vad --highlights goal,penalty --notify
 football-transcriber --screen 0 --gain 1.5 --save    # persist settings to the config file
 python -m pytest
 ```
@@ -82,7 +84,8 @@ audio_callback (real-time, 50ms blocks) → Gain.apply() → RMS VAD
        └─ transcription_worker (background thread)
             ├─ mlx_whisper.transcribe(initial_prompt=vocab.prompt)
             ├─ no_speech_prob / is_hallucination / looks_like_prompt_echo filters
-            └─ vocab.correct()  →  OverlayApp.push_final()
+            ├─ vocab.correct()  →  OverlayApp.push_final()
+            └─ highlights.handle()
                  └─ text_queue → poll (Qt timer, 50ms) → SubtitleWindow.show_text()
 KeyboardController (thread, stdin cbreak) → Gain.set() → push_status() + Settings.save_key("gain")
 ```
@@ -105,6 +108,7 @@ max_partial_chars = 80       # streaming: cap partial text to avoid overflow
 subtitle_seconds = 4.0       # auto-clear timer                                  (--subtitle-seconds)
 screen = 1                   # 0 = main, 1 = external                            (--screen)
 gain = 1.0                   # input gain, 0..5                                  (--gain, +/- keys)
+highlight_cooldown = 10.0    # seconds before the same event fires again
 ```
 
 ---
@@ -125,4 +129,5 @@ gain = 1.0                   # input gain, 0..5                                 
 ## Logging
 
 - Logs written to `transcriber.log` (`--log-file`) and stdout simultaneously. Root level INFO, `football_transcriber.*` at DEBUG.
+- Highlight markers go to `highlights.log` (`--highlight-log`).
 - Thread exception handler is in place for post-crash diagnosis.
