@@ -18,7 +18,8 @@ football_transcriber/
 ├── streaming_transcriber.py  # RealtimeSTT バックエンド（"streaming" モード）
 ├── audio.py                  # デバイス検索、Gain、KeyboardController（ターミナルキー入力）
 ├── vocabulary.py             # Whisper initial_prompt + 用語/選手名補正
-└── text_filters.py           # is_hallucination()、looks_like_prompt_echo()
+├── text_filters.py           # is_hallucination()、looks_like_prompt_echo()
+└── macos.py                  # PyObjC: フルスクリーンアプリ上 / 全 Space に表示
 tests/                        # pytest（純 Python の単体テスト。音声/GPU 不要）
 overlay_transcribe.py         # 薄いラッパー == football-transcriber vad
 overlay_streaming.py          # 薄いラッパー == football-transcriber streaming
@@ -33,6 +34,7 @@ overlay_streaming.py          # 薄いラッパー == football-transcriber strea
 - macOS + Apple Silicon（mlx-whisper は Metal GPU 必須）
 - BlackHole 2ch バーチャルオーディオドライバーがインストール済みであること
 - macOS の「Audio MIDI 設定」で Multi-Output Device（スピーカー + BlackHole 2ch）が構成済みであること
+- フルスクリーン上表示には `pyobjc-framework-Cocoa`（任意。無ければ警告のみ）
 
 オーディオデバイスが未構成だと、利用可能な入力一覧（`--list-devices`）を表示して即終了する。
 
@@ -110,6 +112,7 @@ gain = 1.0                   # 入力ゲイン 0〜5                            
 - **選手名のファジー補正はラテン文字のみ対応**（`vocabulary.py` の `_WORD_RE`）。日本語の名前はプロンプトによる補強のみ。
 - **`silence_threshold` の調整**: 最適値は環境によって異なる。低くしすぎると hallucination が増える。実行中のゲイン（`+`/`-`）で実質的に閾値をずらせる。
 - **`max_speech = 1.5`**: 実況は連続発話が多く VAD が無音を検出できないことがあるため、長い発話を強制的にフラッシュする。
+- **フルスクリーン上表示**は `show()` 後に `NSWindowCollectionBehaviorFullScreenAuxiliary` + `NSScreenSaverWindowLevel` を適用して実現。Qt がネイティブウィンドウを作り直した場合（画面構成変更など）は再適用が必要になる。
 - **キー操作には TTY が必要**: stdin がターミナルでない場合（IDE/launchd から起動）はゲインを `--gain` でしか設定できない。
 
 ---

@@ -23,7 +23,8 @@ football_transcriber/
 ├── streaming_transcriber.py  # RealtimeSTT backend                 ("streaming" mode)
 ├── audio.py                  # device lookup, Gain, KeyboardController (terminal keys)
 ├── vocabulary.py             # Whisper initial_prompt + term/player-name corrections
-└── text_filters.py           # is_hallucination(), looks_like_prompt_echo()
+├── text_filters.py           # is_hallucination(), looks_like_prompt_echo()
+└── macos.py                  # PyObjC: overlay over fullscreen apps / all Spaces
 tests/                        # pytest (pure-Python units; no audio/GPU needed)
 overlay_transcribe.py         # thin wrapper == football-transcriber vad
 overlay_streaming.py          # thin wrapper == football-transcriber streaming
@@ -38,6 +39,7 @@ The two backends (`transcriber.py`, `streaming_transcriber.py`) are still intent
 - macOS + Apple Silicon (mlx-whisper requires Metal GPU)
 - BlackHole 2ch virtual audio driver installed
 - macOS Audio MIDI Setup configured with a Multi-Output Device (speakers + BlackHole 2ch)
+- `pyobjc-framework-Cocoa` for the fullscreen overlay (optional; logs a warning if missing)
 
 If the audio device is not set up, the app exits immediately with a device-not-found error listing available inputs (`--list-devices`).
 
@@ -115,6 +117,7 @@ gain = 1.0                   # input gain, 0..5                                 
 - **Player-name fuzzy correction only handles Latin script** (`_WORD_RE` in `vocabulary.py`); Japanese names are only boosted via the prompt.
 - **`silence_threshold` sensitivity**: Optimal value varies by environment. Too low increases hallucinations. Runtime gain (`+`/`-`) effectively shifts it.
 - **`max_speech = 1.5`**: Commentary runs continuously, so VAD may never detect silence; this force-flushes long utterances.
+- **Fullscreen overlay** relies on `NSWindowCollectionBehaviorFullScreenAuxiliary` + `NSScreenSaverWindowLevel` applied after `show()`. If Qt ever recreates the native window (e.g. screen change), the flags would need re-applying.
 - **Keyboard control needs a TTY**: when stdin is not a terminal (launched from an IDE/launchd) gain can only be set with `--gain`.
 
 ---
