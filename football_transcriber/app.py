@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import queue
 import signal
 import sys
@@ -77,6 +78,9 @@ class OverlayApp:
     def push_partial(self, text: str) -> None:
         self.text_queue.put(("partial", text))
 
+    def push_status(self, text: str) -> None:
+        self.text_queue.put(("status", text))
+
     # -- GUI thread --
     def _poll_text(self) -> None:
         try:
@@ -84,10 +88,40 @@ class OverlayApp:
                 kind, text = self.text_queue.get_nowait()
                 if kind == "partial":
                     self.window.show_partial(text)
+                elif kind == "status":
+                    self.window.show_status(text)
                 else:
                     self.window.show_text(text)
         except queue.Empty:
             pass
+
+    def attach_gain_control(self, gain_value: float):
+        """Create the runtime Gain and (if stdin is a TTY) the keyboard controller.
+
+        Gain changes are shown in the overlay, logged, and persisted to the config file.
+        """
+        from .audio import Gain, KeyboardController
+
+        def on_change(value: float) -> None:
+            log.info("Input gain: %.1fx", value)
+            self.push_status(gain.label())
+            try:
+                self.settings.save_key("gain", value)
+            except OSError:
+                log.exception("Could not persist gain")
+
+        gain = Gain(gain_value, on_change=on_change)
+        self.gain = gain
+        self.keyboard = None
+        if KeyboardController.available():
+            self.keyboard = KeyboardController(gain, on_quit=lambda: os.kill(os.getpid(), signal.SIGINT))
+            self.keyboard.start()
+            log.info(KeyboardController.HELP)
+        else:
+            log.info("stdin is not a TTY — keyboard gain control disabled (use --gain)")
+        if gain.value != 1.0:
+            self.push_status(gain.label())
+        return gain
 
     def exec(self, on_exit: Callable[[], None] | None = None) -> int:
         try:
@@ -97,3 +131,7 @@ class OverlayApp:
         finally:
             if on_exit:
                 on_exit()
+            kb = getattr(self, "keyboard", None)
+            if kb is not None:
+                kb.stop()
+                kb.join(timeout=1)

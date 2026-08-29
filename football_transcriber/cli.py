@@ -33,6 +33,8 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--model", help="model size (tiny/base/small/medium) or full model name")
     g.add_argument("--realtime-model", help="[streaming] model for partial updates (default: tiny.en)")
     g.add_argument("--lang", dest="language", help="transcription language code, e.g. en, ja")
+    g.add_argument("--gain", type=float,
+                   help="input gain multiplier (0 = mute .. 5.0); adjustable at runtime with +/- keys")
 
     g = p.add_argument_group("VAD tuning (vad mode)")
     g.add_argument("--threshold", dest="silence_threshold", type=float,

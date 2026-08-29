@@ -59,6 +59,24 @@ class SubtitleWindow(QWidget):
         self._clear_timer.setSingleShot(True)
         self._clear_timer.timeout.connect(self._clear)
 
+        # Small status badge (gain level etc.) in the bottom-right corner of the bar
+        self.status = QLabel("", self)
+        self.status.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.status.setFont(QFont("Helvetica", max(10, settings.font_size // 2)))
+        self.status.setStyleSheet(f"""
+            QLabel {{
+                color: #ffd54f;
+                background-color: {self._bg_rgba};
+                border-radius: 6px;
+                padding: 2px 8px;
+            }}
+        """)
+        self.status.adjustSize()
+        self.status.hide()
+        self._status_timer = QTimer(self)
+        self._status_timer.setSingleShot(True)
+        self._status_timer.timeout.connect(self.status.hide)
+
     def _set_style(self, font_color: str):
         self.label.setStyleSheet(f"""
             QLabel {{
@@ -80,6 +98,15 @@ class SubtitleWindow(QWidget):
         self._clear_timer.stop()
         self._set_style(self.settings.font_color_partial)
         self.label.setText(text)
+
+    def show_status(self, text: str, seconds: float = 1.5):
+        """Briefly show a small status badge (e.g. current gain) without touching the subtitle."""
+        self.status.setText(text)
+        self.status.adjustSize()
+        self.status.move(self.width() - self.status.width() - 6, self.height() - self.status.height() - 6)
+        self.status.show()
+        self.status.raise_()
+        self._status_timer.start(int(seconds * 1000))
 
     def _clear(self):
         self.label.setText("")
