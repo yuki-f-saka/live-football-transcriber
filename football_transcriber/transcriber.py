@@ -60,6 +60,7 @@ def run(settings: Settings) -> int:
         log.info("Vocabulary prompt: %s", prompt)
 
     app = OverlayApp(settings)
+    gain = app.attach_gain_control(settings.gain)
     # Show startup message to confirm overlay position
     app.window.show_text("▶ Overlay active — waiting for audio...")
 
@@ -77,7 +78,7 @@ def run(settings: Settings) -> int:
         if status:
             log.warning("Audio stream status: %s", status)
         try:
-            audio = indata[:, 0].copy()
+            audio = gain.apply(indata[:, 0].copy())
             rms = float(np.sqrt(np.mean(audio ** 2)))
             is_speech = rms > silence_threshold
 
