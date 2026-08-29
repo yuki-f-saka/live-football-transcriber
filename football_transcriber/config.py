@@ -85,6 +85,13 @@ class Settings:
     players: list[str] = field(default_factory=list)   # player/team names to boost and auto-correct
     players_file: str | None = None        # text file with one name per line (per-match squad list)
 
+    # --- Highlights (issue #14) ---
+    highlights: list[str] = field(default_factory=list)   # events to detect, e.g. ["goal", "penalty"]; empty = off
+    highlight_log: str = "highlights.log"  # timestamped markers for later clipping
+    highlight_notify: bool = False         # macOS notification on each event
+    highlight_sound: str | None = None     # audio file played with afplay on each event
+    highlight_cooldown: float = 10.0       # seconds before the same event can fire again
+
     # --- Logging ---
     log_file: str = "transcriber.log"
 
@@ -124,6 +131,16 @@ class Settings:
         if "." in name or "/" in name:
             return name
         return f"{name}.en" if self.is_english else name
+
+    def highlight_detector(self):
+        from .highlights import HighlightDetector, parse_event_list
+        return HighlightDetector(
+            events=parse_event_list(self.highlights),
+            cooldown=self.highlight_cooldown,
+            log_path=self.highlight_log,
+            notify=self.highlight_notify,
+            sound=self.highlight_sound,
+        )
 
     def min_alpha_chars(self) -> int:
         """Hallucination filter threshold: CJK packs more meaning per character."""

@@ -52,6 +52,17 @@ def build_parser() -> argparse.ArgumentParser:
                    help="comma-separated player/team names to boost and auto-correct, e.g. 'Salah,Haaland,De Bruyne'")
     g.add_argument("--players-file", dest="players_file", help="file with one player name per line")
 
+    g = p.add_argument_group("highlights")
+    g.add_argument("--highlights", type=_csv_list, metavar="EVENTS",
+                   help="detect match events from the transcript: comma list of "
+                        "goal,penalty,red_card,yellow_card,var,offside,free_kick,corner,substitution or 'all'")
+    g.add_argument("--highlight-log", dest="highlight_log", help="file to append timestamped event markers to")
+    g.add_argument("--notify", dest="highlight_notify", action="store_true", default=None,
+                   help="show a macOS notification for each detected event")
+    g.add_argument("--highlight-sound", dest="highlight_sound", help="audio file to play (afplay) on each event")
+    g.add_argument("--highlight-cooldown", dest="highlight_cooldown", type=float,
+                   help="seconds before the same event may fire again")
+
     g = p.add_argument_group("overlay")
     g.add_argument("--screen", type=int, help="screen index to show the overlay on (0 = main)")
     g.add_argument("--font-size", dest="font_size", type=int)
@@ -88,6 +99,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     settings = settings_from_args(args)
+    try:
+        from .highlights import parse_event_list
+        parse_event_list(settings.highlights)
+    except ValueError as e:
+        parser.error(str(e))
 
     if args.show_config:
         import json

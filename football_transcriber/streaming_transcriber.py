@@ -40,6 +40,11 @@ def run(settings: Settings) -> int:
     if prompt:
         log.info("Vocabulary prompt: %s", prompt)
 
+    highlights = settings.highlight_detector()
+    if highlights.enabled:
+        log.info("Highlight detection: %s → %s%s", ", ".join(highlights.events), settings.highlight_log,
+                 " + notification" if settings.highlight_notify else "")
+
     app = OverlayApp(settings)
     gain = app.attach_gain_control(settings.gain)
     app.window.show_partial("▶ Overlay active — loading models...")
@@ -112,6 +117,7 @@ def run(settings: Settings) -> int:
                 text = vocab.correct(text)
                 log.info("[%s] %s", time.strftime("%H:%M:%S"), text)
                 app.push_final(text)
+                highlights.handle(text)
 
     recorder_thread = threading.Thread(target=recorder_loop, name="recorder_loop", daemon=True)
     recorder_thread.start()
