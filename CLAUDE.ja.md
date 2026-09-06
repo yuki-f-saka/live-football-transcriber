@@ -17,7 +17,7 @@ football_transcriber/
 ├── transcriber.py            # VAD チャンキング + mlx-whisper バックエンド（"vad" モード）
 ├── streaming_transcriber.py  # RealtimeSTT バックエンド（"streaming" モード）
 ├── audio.py                  # デバイス検索、Gain、KeyboardController（ターミナルキー入力）
-├── vocabulary.py             # Whisper initial_prompt + 用語/選手名補正
+├── vocabulary.py             # Whisper initial_prompt + 用語/選手名補正 + エイリアス
 ├── text_filters.py           # is_hallucination()、looks_like_prompt_echo()
 ├── highlights.py             # キーワード → イベント検出とアクション（ログ/通知/音）
 └── macos.py                  # PyObjC: フルスクリーンアプリ上 / 全 Space に表示
@@ -49,6 +49,8 @@ football-transcriber vad               # VAD モード（推奨）        == pyt
 football-transcriber streaming         # partial テキスト表示      == python overlay_streaming.py
 football-transcriber --help
 football-transcriber vad --players "Haaland,Salah,De Bruyne"   # 選手名の認識強化 + 自動補正
+football-transcriber vad --players "Saka=Sacker|Sarker"        # 頑固な誤認識にエイリアスを指定
+football-transcriber vad --players-file squads/arsenal.txt     # 1行1名（エイリアス指定も可）
 football-transcriber vad --lang ja --screen 0 --players "三笘,久保"
 football-transcriber vad --highlights goal,penalty --notify
 football-transcriber --screen 0 --gain 1.5 --save    # 設定ファイルに保存
@@ -59,6 +61,23 @@ python -m pytest
 
 実行中のキー操作（ターミナルで入力。オーバーレイ自体はクリック透過でフォーカスを持たない）:
 `+`/`-`/↑/↓ = 入力ゲイン、`0` = リセット、`m` = ミュート、`q`/Esc = 終了。ゲイン変更は即座に保存される。
+
+---
+
+## 選手名とエイリアス（`vocabulary.py`）
+
+`--players` / `--players-file` の各エントリは以下の指定形式を受け付ける:
+
+```
+Bukayo Saka                      # 名前のみ: プロンプト強化 + ファジー補正
+Saka=Sacker|Sarker               # 正式名=エイリアス|エイリアス — 完全一致で照合
+Martin Odegaard=Ode Guard        # エイリアスは複数語でも可
+```
+
+字幕に出力されるのは正式名（`=` の左側）なので、表示したい形で書く。`Saka=Sacker` なら
+"Saka"、`Bukayo Saka=Sacker` ならフルネームになる。照合は長い語句から順に、完全一致→ファジー
+の順で行われ、大文字で始まる語句のみが対象（"salad" が "Salah" になることはない）。指定文字列は
+そのまま `Settings.players` に保存されるため、`--save` / `--show-config` でも解析前の形で往復する。
 
 ---
 
@@ -114,6 +133,9 @@ highlight_cooldown = 10.0    # 同じイベントが再発火するまでの秒�
 - **CJK 言語**では `is_hallucination()` の最小文字数を 2 にしている（`Settings.min_alpha_chars()`）。`ゴール` のような短い語が落ちないようにするため。
 - **短いチャンクへの `initial_prompt`**: 1.5 秒チャンクに長いプロンプトを与えるとプロンプト反復が増えることがある。`FOOTBALL_TERMS_*` は短く保つこと。`--no-vocab` で無効化可能。
 - **選手名のファジー補正はラテン文字のみ対応**（`vocabulary.py` の `_WORD_RE`）。日本語の名前はプロンプトによる補強のみ。
+- **ファジー補正は姓のみの誤認識を拾えない**: `name_cutoff = 0.8` だが "Sacker" と "Saka" の類似度は 0.6 しかなく、4文字未満の語はファジー照合の対象外。エイリアス（`Saka=Sacker|Sarker`）は完全一致で照合されるため、この2つの制限を回避できる。エイリアスはプロンプトには入らない（誤った綴りなので入れると逆効果）。
+- **エイリアスの置換は保守的**: 姓のエイリアスがファーストネームを勝手に補うことはなく（"Sacker" → "Saka"、"Bukayo Saka" にはしない）、既にある語を重複させることもない（"Kai Havits" → "Kai Havertz"）。`Vocabulary._fit_replacement()` を参照。
+- **`--players-file` が長すぎるとプロンプトが溢れる**: Whisper の `initial_prompt` は約224トークンまで。25人分の名簿＋サッカー用語で既に約150〜180トークンあるため、2チーム分を渡すと黙って切り捨てられる。1チーム分、またはボールに関わる選手だけにする。
 - **`silence_threshold` の調整**: 最適値は環境によって異なる。低くしすぎると hallucination が増える。実行中のゲイン（`+`/`-`）で実質的に閾値をずらせる。
 - **`max_speech = 1.5`**: 実況は連続発話が多く VAD が無音を検出できないことがあるため、長い発話を強制的にフラッシュする。
 - **フルスクリーン上表示**は `show()` 後に `NSWindowCollectionBehaviorFullScreenAuxiliary` + `NSScreenSaverWindowLevel` を適用して実現。Qt がネイティブウィンドウを作り直した場合（画面構成変更など）は再適用が必要になる。

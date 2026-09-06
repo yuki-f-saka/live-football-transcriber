@@ -49,8 +49,11 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--no-vocab", dest="vocabulary", action="store_false", default=None,
                    help="disable the football prompt hints and text corrections")
     g.add_argument("--players", type=_csv_list,
-                   help="comma-separated player/team names to boost and auto-correct, e.g. 'Salah,Haaland,De Bruyne'")
-    g.add_argument("--players-file", dest="players_file", help="file with one player name per line")
+                   help="comma-separated player/team names to boost and auto-correct, e.g. 'Salah,Haaland,De Bruyne'. "
+                        "Append '=alias|alias' to fix specific mis-hearings exactly, "
+                        "e.g. 'Bukayo Saka=Saka|Sacker|Sarker'")
+    g.add_argument("--players-file", dest="players_file",
+                   help="file with one player name (or 'Name=alias|alias' spec) per line")
 
     g = p.add_argument_group("highlights")
     g.add_argument("--highlights", type=_csv_list, metavar="EVENTS",

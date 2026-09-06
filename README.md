@@ -14,7 +14,7 @@ Two transcription modes are available:
 ## Features
 
 - Transparent, click-through subtitle bar — shown on **all Spaces and over fullscreen apps**
-- **Football vocabulary**: Whisper prompt hints + auto-correction of terms and player names (`--players "Haaland,Salah"`)
+- **Football vocabulary**: Whisper prompt hints + auto-correction of terms and player names (`--players "Haaland,Salah"`), with explicit aliases for stubborn mis-hearings (`--players "Saka=Sacker|Sarker"`)
 - **Runtime volume control** with `+`/`-` keys, persisted between sessions
 - **Japanese** (and other languages) via `--lang ja`
 - **Highlight detection**: goal / penalty / red card / VAR … → timestamped log, macOS notification, sound
@@ -71,8 +71,22 @@ Examples:
 ```bash
 # Boost recognition of the players on the pitch (also fixes "Harland" → "Haaland")
 football-transcriber --players "Haaland,Salah,De Bruyne"
-football-transcriber --players-file squad.txt        # one name per line
+football-transcriber --players-file squad.txt        # one name (or alias spec) per line
 
+# Fuzzy matching gives up below 0.8 similarity, so "Sacker" never becomes "Saka".
+# Aliases are matched exactly, which fixes those cases:
+football-transcriber --players "Saka=Sacker|Sarker,Rice=Rise,Odegaard=Ode Guard"
+```
+
+The canonical name (left of `=`) is what appears in the subtitle, so spell it the way
+you want to read it. Aliases are never fed to Whisper as prompt hints — they are wrong
+spellings by definition — and they never invent or duplicate a first name
+(`Sacker` → `Saka`, `Kai Havits` → `Kai Havertz`).
+
+Note that Whisper's `initial_prompt` holds only ~224 tokens; a full 25-man squad plus the
+built-in football terms already uses ~150-180, so two squads at once will be truncated.
+
+```bash
 # Japanese commentary (multilingual model, defaults to medium)
 football-transcriber --lang ja --model small
 
@@ -113,7 +127,7 @@ Settings resolve as: built-in defaults → config file → CLI flags. Use `--sho
 | `min_speech` | `--min-speech` | `0.3` | Ignore utterances shorter than this (s) |
 | `max_speech` | `--max-speech` | `1.5` | Force-flush after this many seconds of continuous speech (vad) |
 | `vocabulary` | `--no-vocab` | on | Football prompt hints + corrections |
-| `players` | `--players`, `--players-file` | — | Player/team names to boost and auto-correct |
+| `players` | `--players`, `--players-file` | — | Player/team names to boost and auto-correct; `Name=alias\|alias` for exact fixes |
 | `highlights` | `--highlights` | off | Events to detect: `goal,penalty,red_card,yellow_card,var,offside,free_kick,corner,substitution` or `all` |
 | `highlight_notify` | `--notify` | off | macOS notification per event |
 | `highlight_sound` | `--highlight-sound` | — | Sound file to play per event |

@@ -22,7 +22,7 @@ football_transcriber/
 ├── transcriber.py            # VAD chunking + mlx-whisper backend  ("vad" mode)
 ├── streaming_transcriber.py  # RealtimeSTT backend                 ("streaming" mode)
 ├── audio.py                  # device lookup, Gain, KeyboardController (terminal keys)
-├── vocabulary.py             # Whisper initial_prompt + term/player-name corrections
+├── vocabulary.py             # Whisper initial_prompt + term/player-name corrections + aliases
 ├── text_filters.py           # is_hallucination(), looks_like_prompt_echo()
 ├── highlights.py             # keyword → event detection with actions (log/notify/sound)
 └── macos.py                  # PyObjC: overlay over fullscreen apps / all Spaces
@@ -54,6 +54,8 @@ football-transcriber vad               # VAD mode (recommended)   == python over
 football-transcriber streaming         # shows partial text       == python overlay_streaming.py
 football-transcriber --help
 football-transcriber vad --players "Haaland,Salah,De Bruyne"   # boost + auto-correct names
+football-transcriber vad --players "Saka=Sacker|Sarker"        # exact alias for a stubborn mis-hearing
+football-transcriber vad --players-file squads/arsenal.txt     # one name (or alias spec) per line
 football-transcriber vad --lang ja --screen 0 --players "三笘,久保"
 football-transcriber vad --highlights goal,penalty --notify
 football-transcriber --screen 0 --gain 1.5 --save    # persist settings to the config file
@@ -64,6 +66,24 @@ On first run, models are downloaded from HuggingFace — this takes a few minute
 
 Runtime keys (typed in the terminal; the overlay itself is click-through and never has focus):
 `+`/`-`/Up/Down = input gain, `0` = reset, `m` = mute, `q`/Esc = quit. Gain changes are persisted immediately.
+
+---
+
+## Player names and aliases (`vocabulary.py`)
+
+`--players` / `--players-file` entries accept a spec form:
+
+```
+Bukayo Saka                      # name only: prompt boost + fuzzy correction
+Saka=Sacker|Sarker               # canonical=alias|alias — matched exactly
+Martin Odegaard=Ode Guard        # aliases may span several words
+```
+
+The canonical name is what gets written into the subtitle, so spell it the way you
+want to read it: `Saka=Sacker` yields "Saka", `Bukayo Saka=Sacker` yields the full name.
+Matching runs longest-phrase-first, exact before fuzzy, and only on windows starting
+with a capitalised word (so "salad" never becomes "Salah"). Raw specs are stored in
+`Settings.players`, so `--save` and `--show-config` round-trip them unparsed.
 
 ---
 
@@ -119,6 +139,9 @@ highlight_cooldown = 10.0    # seconds before the same event fires again
 - **CJK languages** use a 2-character minimum in `is_hallucination()` (`Settings.min_alpha_chars()`) so short words like `ゴール` are not dropped.
 - **`initial_prompt` on short chunks**: 1.5 s chunks with a long prompt can increase prompt echoes; keep `FOOTBALL_TERMS_*` short. `--no-vocab` disables it.
 - **Player-name fuzzy correction only handles Latin script** (`_WORD_RE` in `vocabulary.py`); Japanese names are only boosted via the prompt.
+- **Fuzzy matching misses surname-only mis-hearings**: `name_cutoff = 0.8`, but "Sacker" scores only 0.6 against "Saka", and windows under 4 characters are not fuzzy-matched at all. Use an alias (`Saka=Sacker|Sarker`) — aliases are matched exactly, so they bypass both limits. They never enter the prompt (they are wrong spellings by definition).
+- **Aliases replace conservatively**: a surname alias never invents a first name ("Sacker" → "Saka", not "Bukayo Saka") and never repeats one already present ("Kai Havits" → "Kai Havertz"). See `Vocabulary._fit_replacement()`.
+- **A long `--players-file` can overflow the prompt**: Whisper's `initial_prompt` holds ~224 tokens; a full 25-man squad plus the football terms is already ~150-180. Two squads will be silently truncated — list one team, or just the players on the ball.
 - **`silence_threshold` sensitivity**: Optimal value varies by environment. Too low increases hallucinations. Runtime gain (`+`/`-`) effectively shifts it.
 - **`max_speech = 1.5`**: Commentary runs continuously, so VAD may never detect silence; this force-flushes long utterances.
 - **Fullscreen overlay** relies on `NSWindowCollectionBehaviorFullScreenAuxiliary` + `NSScreenSaverWindowLevel` applied after `show()`. If Qt ever recreates the native window (e.g. screen change), the flags would need re-applying.
