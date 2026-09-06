@@ -37,6 +37,9 @@ class Settings:
     realtime_model: str | None = None      # streaming mode only: model for partial updates
     language: str = "en"
 
+    # --- Input gain (issue #2) — adjustable at runtime with +/- keys, persisted on change ---
+    gain: float = 1.0
+
     # --- VAD (vad mode) ---
     silence_threshold: float = 0.03        # RMS below this is silence (high on purpose: filters crowd noise)
     post_speech_silence: float = 0.4       # seconds of silence after speech that triggers transcription

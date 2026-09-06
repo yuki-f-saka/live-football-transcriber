@@ -13,6 +13,9 @@ import logging
 import threading
 import time
 
+import numpy as np
+import sounddevice as sd
+
 from .app import OverlayApp
 from .audio import find_device_index
 from .config import Settings
@@ -38,6 +41,7 @@ def run(settings: Settings) -> int:
         log.info("Vocabulary prompt: %s", prompt)
 
     app = OverlayApp(settings)
+    gain = app.attach_gain_control(settings.gain)
     app.window.show_partial("▶ Overlay active — loading models...")
 
     max_partial = settings.max_partial_chars
@@ -53,7 +57,7 @@ def run(settings: Settings) -> int:
         model=final_model,
         realtime_model_type=realtime_model,
         language=settings.language,
-        input_device_index=device_index,
+        use_microphone=False,                  # we capture with sounddevice and feed_audio() so gain can be applied
         device="cpu",                          # no CUDA on Mac; use cpu
         compute_type="int8",
         enable_realtime_transcription=True,
@@ -72,6 +76,28 @@ def run(settings: Settings) -> int:
         initial_prompt_realtime=prompt,
     )
     log.info("Models loaded.")
+
+    sr = settings.sample_rate
+
+    def audio_callback(indata, _frames, _time_info, status):
+        # Real-time thread: apply gain, convert to int16 PCM and hand off. No blocking here.
+        if status:
+            log.warning("Audio stream status: %s", status)
+        try:
+            audio = gain.apply(indata[:, 0])
+            recorder.feed_audio((audio * 32767).astype(np.int16).tobytes(), original_sample_rate=sr)
+        except Exception:
+            log.exception("Exception in audio_callback")
+
+    stream = sd.InputStream(
+        device=device_index,
+        channels=1,
+        samplerate=sr,
+        dtype="float32",
+        callback=audio_callback,
+        blocksize=int(sr * 0.05),  # 50 ms blocks
+    )
+    stream.start()
 
     stop_event = threading.Event()
 
@@ -92,6 +118,8 @@ def run(settings: Settings) -> int:
 
     def shutdown():
         stop_event.set()
+        stream.stop()
+        stream.close()
         try:
             recorder.shutdown()
         except Exception:

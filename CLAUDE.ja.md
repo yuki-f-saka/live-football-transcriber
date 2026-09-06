@@ -12,11 +12,11 @@
 football_transcriber/
 ├── cli.py                    # エントリポイント: football-transcriber [vad|streaming] [options]
 ├── config.py                 # Settings dataclass（全定数）+ JSON 設定ファイル + モデル名解決
-├── app.py                    # OverlayApp: QApplication、SIGINT 処理、text_queue → window
-├── overlay.py                # SubtitleWindow（PyQt6）
+├── app.py                    # OverlayApp: QApplication、SIGINT 処理、text_queue → window、ゲイン/キー操作の配線
+├── overlay.py                # SubtitleWindow（PyQt6）+ ステータスバッジ
 ├── transcriber.py            # VAD チャンキング + mlx-whisper バックエンド（"vad" モード）
 ├── streaming_transcriber.py  # RealtimeSTT バックエンド（"streaming" モード）
-├── audio.py                  # 入力デバイス検索
+├── audio.py                  # デバイス検索、Gain、KeyboardController（ターミナルキー入力）
 ├── vocabulary.py             # Whisper initial_prompt + 用語/選手名補正
 └── text_filters.py           # is_hallucination()、looks_like_prompt_echo()
 tests/                        # pytest（純 Python の単体テスト。音声/GPU 不要）
@@ -24,7 +24,7 @@ overlay_transcribe.py         # 薄いラッパー == football-transcriber vad
 overlay_streaming.py          # 薄いラッパー == football-transcriber streaming
 ```
 
-2つのバックエンド（`transcriber.py`、`streaming_transcriber.py`）は引き続き意図的に独立した実装。共有しているのはオーバーレイ、設定、アプリ起動部分、用語辞書のみ。片方を修正するときは、もう片方にも同じ変更が必要か確認すること。
+2つのバックエンド（`transcriber.py`、`streaming_transcriber.py`）は引き続き意図的に独立した実装。共有しているのはオーバーレイ、設定、アプリ起動部分、用語辞書、ゲイン周りのみ。片方を修正するときは、もう片方にも同じ変更が必要か確認すること。
 
 ---
 
@@ -46,18 +46,21 @@ football-transcriber vad               # VAD モード（推奨）        == pyt
 football-transcriber streaming         # partial テキスト表示      == python overlay_streaming.py
 football-transcriber --help
 football-transcriber vad --players "Haaland,Salah,De Bruyne"   # 選手名の認識強化 + 自動補正
-football-transcriber --screen 0 --save # 設定ファイルに保存
+football-transcriber --screen 0 --gain 1.5 --save    # 設定ファイルに保存
 python -m pytest
 ```
 
 初回起動時は HuggingFace からモデルをダウンロードするため数分かかる。
+
+実行中のキー操作（ターミナルで入力。オーバーレイ自体はクリック透過でフォーカスを持たない）:
+`+`/`-`/↑/↓ = 入力ゲイン、`0` = リセット、`m` = ミュート、`q`/Esc = 終了。ゲイン変更は即座に保存される。
 
 ---
 
 ## 設定の優先順位
 
 `Settings` のデフォルト（`config.py`）< 設定ファイル `~/.config/football-transcriber/config.json`（または `--config PATH`）< CLI フラグ。
-`Settings.save_key()` は他のキーを壊さずに1キーだけ更新する。`--show-config` で有効な設定を表示。
+`Settings.save_key()` は他のキーを壊さずに1キーだけ更新する（ゲインの保存に使用）。`--show-config` で有効な設定を表示。
 
 モデル名解決（`Settings.resolved_model()`）: 短縮サイズ（`tiny/base/small/medium`）は `mlx-community/whisper-<size>.en-mlx` に対応。streaming モードは faster-whisper 名（`small.en`）。
 
@@ -66,16 +69,19 @@ python -m pytest
 ## アーキテクチャ — スレッドモデル（vad モード）
 
 ```
-audio_callback（リアルタイム、50ms ブロック）→ RMS VAD
+audio_callback（リアルタイム、50ms ブロック）→ Gain.apply() → RMS VAD
   └─ audio_queue（Queue）
        └─ transcription_worker（バックグラウンドスレッド）
             ├─ mlx_whisper.transcribe(initial_prompt=vocab.prompt)
             ├─ no_speech_prob / is_hallucination / looks_like_prompt_echo フィルタ
             └─ vocab.correct()  →  OverlayApp.push_final()
                  └─ text_queue → poll（Qt タイマー、50ms）→ SubtitleWindow.show_text()
+KeyboardController（スレッド、stdin cbreak）→ Gain.set() → push_status() + Settings.save_key("gain")
 ```
 
-**`audio_callback` はリアルタイムスレッドで動作するため、ブロッキング処理を入れてはいけない。**
+streaming モードも sounddevice で取り込み（`use_microphone=False`）、int16 PCM を `AudioToTextRecorder.feed_audio()` に渡すことで同じ Gain が効く。
+
+**`audio_callback` はリアルタイムスレッドで動作するため、ブロッキング処理を入れてはいけない。**（ゲイン保存のファイル I/O はキーボードスレッドで行い、音声スレッドでは行わない。）
 
 ---
 
@@ -90,6 +96,7 @@ max_speech = 1.5             # 連続する実況を強制フラッシュ       
 max_partial_chars = 80       # streaming: partial テキストの文字数上限
 subtitle_seconds = 4.0       # 自動クリアまでの秒数                               (--subtitle-seconds)
 screen = 1                   # 0 = メイン、1 = 外部モニター                       (--screen)
+gain = 1.0                   # 入力ゲイン 0〜5                                    (--gain, +/- キー)
 ```
 
 ---
@@ -99,8 +106,9 @@ screen = 1                   # 0 = メイン、1 = 外部モニター           
 - **Whisper hallucination（幻覚）**: 観客ノイズや BGM により、繰り返し語や記号のみのテキストが生成されることがある。VAD モードは `no_speech_prob > 0.5`、`is_hallucination()`、`looks_like_prompt_echo()`（無音時に Whisper が `initial_prompt` をそのまま出力する現象）でフィルタ。streaming モードはプロンプト反復チェックのみ（VAD は RealtimeSTT/Silero に委任）。
 - **短いチャンクへの `initial_prompt`**: 1.5 秒チャンクに長いプロンプトを与えるとプロンプト反復が増えることがある。`FOOTBALL_TERMS_*` は短く保つこと。`--no-vocab` で無効化可能。
 - **選手名のファジー補正はラテン文字のみ対応**（`vocabulary.py` の `_WORD_RE`）。日本語の名前はプロンプトによる補強のみ。
-- **`silence_threshold` の調整**: 最適値は環境によって異なる。低くしすぎると hallucination が増える。
+- **`silence_threshold` の調整**: 最適値は環境によって異なる。低くしすぎると hallucination が増える。実行中のゲイン（`+`/`-`）で実質的に閾値をずらせる。
 - **`max_speech = 1.5`**: 実況は連続発話が多く VAD が無音を検出できないことがあるため、長い発話を強制的にフラッシュする。
+- **キー操作には TTY が必要**: stdin がターミナルでない場合（IDE/launchd から起動）はゲインを `--gain` でしか設定できない。
 
 ---
 

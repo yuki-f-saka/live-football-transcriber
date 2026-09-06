@@ -14,6 +14,7 @@ Two transcription modes are available:
 ## Features
 
 - **Football vocabulary**: Whisper prompt hints + auto-correction of terms and player names (`--players "Haaland,Salah"`)
+- **Runtime volume control** with `+`/`-` keys, persisted between sessions
 - All settings via CLI flags or `~/.config/football-transcriber/config.json`
 
 ## Requirements
@@ -69,9 +70,24 @@ Examples:
 football-transcriber --players "Haaland,Salah,De Bruyne"
 football-transcriber --players-file squad.txt        # one name per line
 
+# Overlay on the main screen, larger font, start at 1.5x input gain
+football-transcriber --screen 0 --font-size 36 --gain 1.5
+
 # Save the current flags as defaults (~/.config/football-transcriber/config.json)
 football-transcriber --screen 0 --players "Haaland,Salah" --save
 ```
+
+**While running** (keys typed in the terminal — the overlay is click-through):
+
+| Key | Action |
+|---|---|
+| `+` / `=` / ↑ | Input gain up (0.1 steps) |
+| `-` / `_` / ↓ | Input gain down |
+| `0` | Reset gain to 1.0 |
+| `m` | Mute / unmute |
+| `q` / Esc / Ctrl+C | Quit |
+
+The current gain is shown briefly in the corner of the subtitle bar and saved immediately, so it is restored next time.
 
 ## Configuration
 
@@ -81,6 +97,7 @@ Settings resolve as: built-in defaults → config file → CLI flags. Use `--sho
 |---|---|---|---|
 | `device` | `--device` | `BlackHole 2ch` | Input device name (substring) |
 | `model` | `--model` | `small` | `tiny`/`base`/`small`/`medium` or a full model name |
+| `gain` | `--gain` | `1.0` | Input gain multiplier (0 = mute … 5) |
 | `silence_threshold` | `--threshold` | `0.03` | RMS below which audio is treated as silence (vad) |
 | `post_speech_silence` | `--silence` | `0.4` | Silence after speech that triggers transcription (s) |
 | `min_speech` | `--min-speech` | `0.3` | Ignore utterances shorter than this (s) |
@@ -98,7 +115,7 @@ Settings resolve as: built-in defaults → config file → CLI flags. Use `--sho
 
 ```
 System audio → BlackHole 2ch
-                    ↓ 50ms blocks
+                    ↓ 50ms blocks × gain
              RMS-based VAD
              (silence = RMS < 0.03)
                     ↓ speech segment detected
@@ -116,7 +133,7 @@ System audio → BlackHole 2ch
 
 ```
 System audio → BlackHole 2ch
-                    ↓
+                    ↓ sounddevice × gain → feed_audio()
              RealtimeSTT
              (Silero VAD)
               ┌─────┴──────┐
