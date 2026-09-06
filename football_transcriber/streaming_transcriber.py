@@ -32,7 +32,7 @@ def run(settings: Settings) -> int:
     final_model = settings.resolved_model()
     realtime_model = settings.resolved_realtime_model()
     log.info("Input device [%d]: %s", device_index, settings.device)
-    log.info("Final model: %s  |  Realtime model: %s", final_model, realtime_model)
+    log.info("Final model: %s  |  Realtime model: %s  |  language=%s", final_model, realtime_model, settings.language)
     log.info("Listening... (Escape or Ctrl+C to quit)")
 
     vocab = Vocabulary(settings.language, settings.player_names(), enabled=settings.vocabulary)

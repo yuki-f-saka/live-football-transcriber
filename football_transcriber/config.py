@@ -18,13 +18,32 @@ DEFAULT_CONFIG_PATH = Path(
     or Path.home() / ".config" / "football-transcriber" / "config.json"
 )
 
-# mlx-whisper (VAD mode) model repos, keyed by short size name
+# mlx-whisper (VAD mode) model repos on HuggingFace, keyed by short size name.
+# English-only ".en" variants are faster/more accurate for English; any other
+# language needs the multilingual variants.
 MLX_MODELS_EN = {
     "tiny": "mlx-community/whisper-tiny.en-mlx",
     "base": "mlx-community/whisper-base.en-mlx",
     "small": "mlx-community/whisper-small.en-mlx",
     "medium": "mlx-community/whisper-medium.en-mlx",
 }
+MLX_MODELS_MULTI = {
+    "tiny": "mlx-community/whisper-tiny-mlx",
+    "base": "mlx-community/whisper-base-mlx",
+    "small": "mlx-community/whisper-small-mlx",
+    "medium": "mlx-community/whisper-medium-mlx",
+    "large": "mlx-community/whisper-large-v3-mlx",
+    "large-v3": "mlx-community/whisper-large-v3-mlx",
+    "turbo": "mlx-community/whisper-large-v3-turbo",
+}
+# Default model size per language. Japanese accuracy depends heavily on model
+# size (tiny/small struggle with names), so it defaults to medium.
+DEFAULT_SIZE = {"en": "small", "ja": "medium"}
+DEFAULT_SIZE_OTHER = "small"
+
+# Languages whose script is not space-delimited alphabetic text (affects the
+# "too few letters" hallucination heuristic).
+CJK_LANGUAGES = {"ja", "zh", "ko"}
 
 
 @dataclass
@@ -72,22 +91,42 @@ class Settings:
     config_path: Path = field(default=DEFAULT_CONFIG_PATH, repr=False, compare=False)
 
     # ------------------------------------------------------------------
+    @property
+    def is_english(self) -> bool:
+        return self.language == "en"
+
+    def default_size(self) -> str:
+        return DEFAULT_SIZE.get(self.language, DEFAULT_SIZE_OTHER)
+
     def resolved_model(self) -> str:
-        """Return the concrete model identifier for the active mode."""
-        name = self.model
+        """Return the concrete model identifier for the active mode and language.
+
+        ``model`` may be a short size ("tiny", "small", "medium", "large"), a
+        faster-whisper name ("small.en"), or a full HuggingFace repo. Short
+        sizes are mapped to English-only models for ``en`` and multilingual
+        models otherwise.
+        """
+        name = self.model or self.default_size()
         if self.mode == "vad":
-            if name is None:
-                name = "small"
             if "/" in name:
                 return name
-            return MLX_MODELS_EN.get(name, f"mlx-community/whisper-{name}-mlx")
-        # streaming (faster-whisper model names)
-        if name is None:
-            return "small.en"
-        return name
+            size = name.removesuffix(".en")
+            table = MLX_MODELS_EN if (self.is_english and size in MLX_MODELS_EN) else MLX_MODELS_MULTI
+            return table.get(size, f"mlx-community/whisper-{name}-mlx")
+        # streaming (faster-whisper model names): "small" → "small.en" for English
+        if "." in name or "/" in name or name.startswith("large") or name == "turbo":
+            return name
+        return f"{name}.en" if self.is_english else name
 
     def resolved_realtime_model(self) -> str:
-        return self.realtime_model or "tiny.en"
+        name = self.realtime_model or "tiny"
+        if "." in name or "/" in name:
+            return name
+        return f"{name}.en" if self.is_english else name
+
+    def min_alpha_chars(self) -> int:
+        """Hallucination filter threshold: CJK packs more meaning per character."""
+        return 2 if self.language in CJK_LANGUAGES else 4
 
     def player_names(self) -> list[str]:
         """Names from ``players`` plus ``players_file`` (if set), de-duplicated."""

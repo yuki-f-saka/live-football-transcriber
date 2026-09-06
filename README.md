@@ -15,6 +15,7 @@ Two transcription modes are available:
 
 - **Football vocabulary**: Whisper prompt hints + auto-correction of terms and player names (`--players "Haaland,Salah"`)
 - **Runtime volume control** with `+`/`-` keys, persisted between sessions
+- **Japanese** (and other languages) via `--lang ja`
 - All settings via CLI flags or `~/.config/football-transcriber/config.json`
 
 ## Requirements
@@ -70,6 +71,9 @@ Examples:
 football-transcriber --players "Haaland,Salah,De Bruyne"
 football-transcriber --players-file squad.txt        # one name per line
 
+# Japanese commentary (multilingual model, defaults to medium)
+football-transcriber --lang ja --model small
+
 # Overlay on the main screen, larger font, start at 1.5x input gain
 football-transcriber --screen 0 --font-size 36 --gain 1.5
 
@@ -96,7 +100,8 @@ Settings resolve as: built-in defaults → config file → CLI flags. Use `--sho
 | Setting | Flag | Default | Description |
 |---|---|---|---|
 | `device` | `--device` | `BlackHole 2ch` | Input device name (substring) |
-| `model` | `--model` | `small` | `tiny`/`base`/`small`/`medium` or a full model name |
+| `model` | `--model` | `small` (`ja`: `medium`) | `tiny`/`base`/`small`/`medium`/`large` or a full model name |
+| `language` | `--lang` | `en` | Whisper language; non-English switches to multilingual models |
 | `gain` | `--gain` | `1.0` | Input gain multiplier (0 = mute … 5) |
 | `silence_threshold` | `--threshold` | `0.03` | RMS below which audio is treated as silence (vad) |
 | `post_speech_silence` | `--silence` | `0.4` | Silence after speech that triggers transcription (s) |

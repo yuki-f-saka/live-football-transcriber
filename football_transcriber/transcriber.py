@@ -41,7 +41,7 @@ def run(settings: Settings) -> int:
     import mlx_whisper  # heavy import; keep it local so `--help` stays fast
 
     model = settings.resolved_model()
-    log.info("Loading model '%s'...", model)
+    log.info("Loading model '%s' (language=%s)...", model, settings.language)
     # Warm up the model (downloads from HuggingFace on first run)
     mlx_whisper.transcribe(np.zeros(settings.sample_rate, dtype=np.float32), path_or_hf_repo=model)
     log.info("Model loaded.")
@@ -71,6 +71,7 @@ def run(settings: Settings) -> int:
     min_speech_samples = int(settings.min_speech * sr)
     max_speech_samples = int(settings.max_speech * sr)
     silence_threshold = settings.silence_threshold
+    min_alpha = settings.min_alpha_chars()
 
     vad = VadState()
 
@@ -129,7 +130,7 @@ def run(settings: Settings) -> int:
                         continue
 
                 text = result["text"].strip()
-                if not text or is_hallucination(text) or looks_like_prompt_echo(text, prompt):
+                if not text or is_hallucination(text, min_alpha) or looks_like_prompt_echo(text, prompt):
                     continue
                 text = vocab.correct(text)
                 log.info(text)
