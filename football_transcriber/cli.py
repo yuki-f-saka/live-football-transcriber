@@ -10,6 +10,10 @@ from . import __version__
 from .config import DEFAULT_CONFIG_PATH, Settings
 
 
+def _csv_list(value: str) -> list[str]:
+    return [v.strip() for v in value.split(",") if v.strip()]
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="football-transcriber",
@@ -37,6 +41,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help="seconds of silence after speech that triggers transcription")
     g.add_argument("--min-speech", dest="min_speech", type=float, help="ignore utterances shorter than this (s)")
     g.add_argument("--max-speech", dest="max_speech", type=float, help="force-flush after this many seconds")
+
+    g = p.add_argument_group("vocabulary")
+    g.add_argument("--no-vocab", dest="vocabulary", action="store_false", default=None,
+                   help="disable the football prompt hints and text corrections")
+    g.add_argument("--players", type=_csv_list,
+                   help="comma-separated player/team names to boost and auto-correct, e.g. 'Salah,Haaland,De Bruyne'")
+    g.add_argument("--players-file", dest="players_file", help="file with one player name per line")
 
     g = p.add_argument_group("overlay")
     g.add_argument("--screen", type=int, help="screen index to show the overlay on (0 = main)")

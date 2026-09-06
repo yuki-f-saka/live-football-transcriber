@@ -57,6 +57,11 @@ class Settings:
     window_width_ratio: float = 0.65       # subtitle bar width as fraction of screen width
     screen: int = 1                        # 0 = main screen, 1 = first external monitor, ...
 
+    # --- Vocabulary (issue #10) ---
+    vocabulary: bool = True                # inject football terms into Whisper's initial_prompt + fix common mis-hearings
+    players: list[str] = field(default_factory=list)   # player/team names to boost and auto-correct
+    players_file: str | None = None        # text file with one name per line (per-match squad list)
+
     # --- Logging ---
     log_file: str = "transcriber.log"
 
@@ -80,6 +85,20 @@ class Settings:
 
     def resolved_realtime_model(self) -> str:
         return self.realtime_model or "tiny.en"
+
+    def player_names(self) -> list[str]:
+        """Names from ``players`` plus ``players_file`` (if set), de-duplicated."""
+        from .vocabulary import load_players_file
+        names = list(self.players)
+        if self.players_file:
+            names.extend(load_players_file(self.players_file))
+        seen: set[str] = set()
+        out: list[str] = []
+        for n in names:
+            if n and n not in seen:
+                seen.add(n)
+                out.append(n)
+        return out
 
     # ------------------------------------------------------------------
     def to_dict(self) -> dict[str, Any]:

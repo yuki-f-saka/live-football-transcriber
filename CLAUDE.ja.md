@@ -17,13 +17,14 @@ football_transcriber/
 ├── transcriber.py            # VAD チャンキング + mlx-whisper バックエンド（"vad" モード）
 ├── streaming_transcriber.py  # RealtimeSTT バックエンド（"streaming" モード）
 ├── audio.py                  # 入力デバイス検索
-└── text_filters.py           # is_hallucination()
+├── vocabulary.py             # Whisper initial_prompt + 用語/選手名補正
+└── text_filters.py           # is_hallucination()、looks_like_prompt_echo()
 tests/                        # pytest（純 Python の単体テスト。音声/GPU 不要）
 overlay_transcribe.py         # 薄いラッパー == football-transcriber vad
 overlay_streaming.py          # 薄いラッパー == football-transcriber streaming
 ```
 
-2つのバックエンド（`transcriber.py`、`streaming_transcriber.py`）は引き続き意図的に独立した実装。共有しているのはオーバーレイ、設定、アプリ起動部分のみ。片方を修正するときは、もう片方にも同じ変更が必要か確認すること。
+2つのバックエンド（`transcriber.py`、`streaming_transcriber.py`）は引き続き意図的に独立した実装。共有しているのはオーバーレイ、設定、アプリ起動部分、用語辞書のみ。片方を修正するときは、もう片方にも同じ変更が必要か確認すること。
 
 ---
 
@@ -44,6 +45,7 @@ pip install -e .                       # `football-transcriber` コマンドが�
 football-transcriber vad               # VAD モード（推奨）        == python overlay_transcribe.py
 football-transcriber streaming         # partial テキスト表示      == python overlay_streaming.py
 football-transcriber --help
+football-transcriber vad --players "Haaland,Salah,De Bruyne"   # 選手名の認識強化 + 自動補正
 football-transcriber --screen 0 --save # 設定ファイルに保存
 python -m pytest
 ```
@@ -67,9 +69,9 @@ python -m pytest
 audio_callback（リアルタイム、50ms ブロック）→ RMS VAD
   └─ audio_queue（Queue）
        └─ transcription_worker（バックグラウンドスレッド）
-            ├─ mlx_whisper.transcribe()
-            ├─ no_speech_prob / is_hallucination フィルタ
-            └─ OverlayApp.push_final()
+            ├─ mlx_whisper.transcribe(initial_prompt=vocab.prompt)
+            ├─ no_speech_prob / is_hallucination / looks_like_prompt_echo フィルタ
+            └─ vocab.correct()  →  OverlayApp.push_final()
                  └─ text_queue → poll（Qt タイマー、50ms）→ SubtitleWindow.show_text()
 ```
 
@@ -94,7 +96,9 @@ screen = 1                   # 0 = メイン、1 = 外部モニター           
 
 ## 既知の問題 / 注意事項
 
-- **Whisper hallucination（幻覚）**: 観客ノイズや BGM により、繰り返し語や記号のみのテキストが生成されることがある。VAD モードは `no_speech_prob > 0.5` と `is_hallucination()` でフィルタ。streaming モードには hallucination フィルタなし（VAD は RealtimeSTT/Silero に委任）。
+- **Whisper hallucination（幻覚）**: 観客ノイズや BGM により、繰り返し語や記号のみのテキストが生成されることがある。VAD モードは `no_speech_prob > 0.5`、`is_hallucination()`、`looks_like_prompt_echo()`（無音時に Whisper が `initial_prompt` をそのまま出力する現象）でフィルタ。streaming モードはプロンプト反復チェックのみ（VAD は RealtimeSTT/Silero に委任）。
+- **短いチャンクへの `initial_prompt`**: 1.5 秒チャンクに長いプロンプトを与えるとプロンプト反復が増えることがある。`FOOTBALL_TERMS_*` は短く保つこと。`--no-vocab` で無効化可能。
+- **選手名のファジー補正はラテン文字のみ対応**（`vocabulary.py` の `_WORD_RE`）。日本語の名前はプロンプトによる補強のみ。
 - **`silence_threshold` の調整**: 最適値は環境によって異なる。低くしすぎると hallucination が増える。
 - **`max_speech = 1.5`**: 実況は連続発話が多く VAD が無音を検出できないことがあるため、長い発話を強制的にフラッシュする。
 
