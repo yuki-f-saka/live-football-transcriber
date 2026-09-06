@@ -78,6 +78,7 @@ class Settings:
     screen_margin_y: int = 40              # px from top of screen
     window_width_ratio: float = 0.65       # subtitle bar width as fraction of screen width
     screen: int = 1                        # 0 = main screen, 1 = first external monitor, ...
+    fullscreen_overlay: bool = True        # show over fullscreen apps / all Spaces (needs PyObjC)
 
     # --- Vocabulary (issue #10) ---
     vocabulary: bool = True                # inject football terms into Whisper's initial_prompt + fix common mis-hearings

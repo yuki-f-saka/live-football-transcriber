@@ -65,6 +65,9 @@ class OverlayApp:
         self.window = SubtitleWindow(settings)
         self.window.show()
         self.window.raise_()
+        if settings.fullscreen_overlay and sys.platform == "darwin":
+            from .macos import make_visible_over_fullscreen
+            make_visible_over_fullscreen(self.window)
 
         self.text_queue: "queue.Queue[tuple[str, str]]" = queue.Queue()
         self._poll_timer = QTimer()

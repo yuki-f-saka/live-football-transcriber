@@ -13,6 +13,7 @@ Two transcription modes are available:
 
 ## Features
 
+- Transparent, click-through subtitle bar — shown on **all Spaces and over fullscreen apps**
 - **Football vocabulary**: Whisper prompt hints + auto-correction of terms and player names (`--players "Haaland,Salah"`)
 - **Runtime volume control** with `+`/`-` keys, persisted between sessions
 - **Japanese** (and other languages) via `--lang ja`
@@ -112,6 +113,7 @@ Settings resolve as: built-in defaults → config file → CLI flags. Use `--sho
 | `font_size` | `--font-size` | `30` | Subtitle font size |
 | `subtitle_seconds` | `--subtitle-seconds` | `4.0` | How long each subtitle stays on screen |
 | `screen` | `--screen` | `1` | Screen to display on (0 = main, 1 = external) |
+| `fullscreen_overlay` | `--no-fullscreen` | on | Show over fullscreen apps / all Spaces (PyObjC) |
 | `max_partial_chars` | — | `80` | Max characters of partial text (streaming) |
 
 ## How It Works

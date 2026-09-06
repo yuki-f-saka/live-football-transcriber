@@ -58,6 +58,8 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--subtitle-seconds", dest="subtitle_seconds", type=float, help="auto-clear delay")
     g.add_argument("--width", dest="window_width_ratio", type=float, help="bar width as fraction of screen")
     g.add_argument("--margin", dest="screen_margin_y", type=int, help="px from top of screen")
+    g.add_argument("--no-fullscreen", dest="fullscreen_overlay", action="store_false", default=None,
+                   help="do not force the overlay above fullscreen apps / all Spaces")
 
     g = p.add_argument_group("config")
     g.add_argument("--config", type=Path, default=None, help=f"config file (default: {DEFAULT_CONFIG_PATH})")
