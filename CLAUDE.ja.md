@@ -19,13 +19,14 @@ football_transcriber/
 ├── audio.py                  # デバイス検索、Gain、KeyboardController（ターミナルキー入力）
 ├── vocabulary.py             # Whisper initial_prompt + 用語/選手名補正
 ├── text_filters.py           # is_hallucination()、looks_like_prompt_echo()
+├── highlights.py             # キーワード → イベント検出とアクション（ログ/通知/音）
 └── macos.py                  # PyObjC: フルスクリーンアプリ上 / 全 Space に表示
 tests/                        # pytest（純 Python の単体テスト。音声/GPU 不要）
 overlay_transcribe.py         # 薄いラッパー == football-transcriber vad
 overlay_streaming.py          # 薄いラッパー == football-transcriber streaming
 ```
 
-2つのバックエンド（`transcriber.py`、`streaming_transcriber.py`）は引き続き意図的に独立した実装。共有しているのはオーバーレイ、設定、アプリ起動部分、用語辞書、ゲイン周りのみ。片方を修正するときは、もう片方にも同じ変更が必要か確認すること。
+2つのバックエンド（`transcriber.py`、`streaming_transcriber.py`）は引き続き意図的に独立した実装。共有しているのはオーバーレイ、設定、アプリ起動部分、用語辞書、ハイライト、ゲイン周りのみ。片方を修正するときは、もう片方にも同じ変更が必要か確認すること。
 
 ---
 
@@ -49,6 +50,7 @@ football-transcriber streaming         # partial テキスト表示      == pyth
 football-transcriber --help
 football-transcriber vad --players "Haaland,Salah,De Bruyne"   # 選手名の認識強化 + 自動補正
 football-transcriber vad --lang ja --screen 0 --players "三笘,久保"
+football-transcriber vad --highlights goal,penalty --notify
 football-transcriber --screen 0 --gain 1.5 --save    # 設定ファイルに保存
 python -m pytest
 ```
@@ -77,7 +79,8 @@ audio_callback（リアルタイム、50ms ブロック）→ Gain.apply() → R
        └─ transcription_worker（バックグラウンドスレッド）
             ├─ mlx_whisper.transcribe(initial_prompt=vocab.prompt)
             ├─ no_speech_prob / is_hallucination / looks_like_prompt_echo フィルタ
-            └─ vocab.correct()  →  OverlayApp.push_final()
+            ├─ vocab.correct()  →  OverlayApp.push_final()
+            └─ highlights.handle()
                  └─ text_queue → poll（Qt タイマー、50ms）→ SubtitleWindow.show_text()
 KeyboardController（スレッド、stdin cbreak）→ Gain.set() → push_status() + Settings.save_key("gain")
 ```
@@ -100,6 +103,7 @@ max_partial_chars = 80       # streaming: partial テキストの文字数上限
 subtitle_seconds = 4.0       # 自動クリアまでの秒数                               (--subtitle-seconds)
 screen = 1                   # 0 = メイン、1 = 外部モニター                       (--screen)
 gain = 1.0                   # 入力ゲイン 0〜5                                    (--gain, +/- キー)
+highlight_cooldown = 10.0    # 同じイベントが再発火するまでの秒数
 ```
 
 ---
@@ -120,4 +124,5 @@ gain = 1.0                   # 入力ゲイン 0〜5                            
 ## ログ
 
 - `transcriber.log`（`--log-file`）にファイル出力（stdout にも同時出力）。ルートは INFO、`football_transcriber.*` は DEBUG。
+- ハイライトのマーカーは `highlights.log`（`--highlight-log`）。
 - スレッド例外ハンドラがあり、クラッシュ後の原因診断に利用できる。

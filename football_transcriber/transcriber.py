@@ -59,6 +59,11 @@ def run(settings: Settings) -> int:
     if prompt:
         log.info("Vocabulary prompt: %s", prompt)
 
+    highlights = settings.highlight_detector()
+    if highlights.enabled:
+        log.info("Highlight detection: %s → %s%s", ", ".join(highlights.events), settings.highlight_log,
+                 " + notification" if settings.highlight_notify else "")
+
     app = OverlayApp(settings)
     gain = app.attach_gain_control(settings.gain)
     # Show startup message to confirm overlay position
@@ -135,6 +140,7 @@ def run(settings: Settings) -> int:
                 text = vocab.correct(text)
                 log.info(text)
                 app.push_final(text)
+                highlights.handle(text)
             except Exception:
                 log.exception("Exception in transcription_worker")
 

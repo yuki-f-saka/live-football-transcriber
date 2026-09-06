@@ -17,6 +17,7 @@ Two transcription modes are available:
 - **Football vocabulary**: Whisper prompt hints + auto-correction of terms and player names (`--players "Haaland,Salah"`)
 - **Runtime volume control** with `+`/`-` keys, persisted between sessions
 - **Japanese** (and other languages) via `--lang ja`
+- **Highlight detection**: goal / penalty / red card / VAR … → timestamped log, macOS notification, sound
 - All settings via CLI flags or `~/.config/football-transcriber/config.json`
 
 ## Requirements
@@ -75,6 +76,9 @@ football-transcriber --players-file squad.txt        # one name per line
 # Japanese commentary (multilingual model, defaults to medium)
 football-transcriber --lang ja --model small
 
+# Detect highlights → highlights.log + macOS notification
+football-transcriber --highlights goal,penalty,red_card --notify
+
 # Overlay on the main screen, larger font, start at 1.5x input gain
 football-transcriber --screen 0 --font-size 36 --gain 1.5
 
@@ -110,6 +114,10 @@ Settings resolve as: built-in defaults → config file → CLI flags. Use `--sho
 | `max_speech` | `--max-speech` | `1.5` | Force-flush after this many seconds of continuous speech (vad) |
 | `vocabulary` | `--no-vocab` | on | Football prompt hints + corrections |
 | `players` | `--players`, `--players-file` | — | Player/team names to boost and auto-correct |
+| `highlights` | `--highlights` | off | Events to detect: `goal,penalty,red_card,yellow_card,var,offside,free_kick,corner,substitution` or `all` |
+| `highlight_notify` | `--notify` | off | macOS notification per event |
+| `highlight_sound` | `--highlight-sound` | — | Sound file to play per event |
+| `highlight_log` | `--highlight-log` | `highlights.log` | Timestamped marker file (for clipping) |
 | `font_size` | `--font-size` | `30` | Subtitle font size |
 | `subtitle_seconds` | `--subtitle-seconds` | `4.0` | How long each subtitle stays on screen |
 | `screen` | `--screen` | `1` | Screen to display on (0 = main, 1 = external) |
@@ -133,7 +141,7 @@ System audio → BlackHole 2ch
              + hallucination filter
              + term / name correction
                     ↓
-             PyQt6 overlay
+        PyQt6 overlay  +  highlight detection
 ```
 
 ### streaming mode
@@ -147,7 +155,7 @@ System audio → BlackHole 2ch
          tiny.en        small.en
         (realtime)       (final)
               │              │
-        partial text    final text (+ corrections)
+        partial text    final text (+ corrections, highlights)
                     ↓
              PyQt6 overlay
 ```
