@@ -17,3 +17,8 @@ swift_bin/.build/
 *.egg-info/
 build/
 dist/
+
+# Local squad lists for --players-file (per-match player names / aliases).
+# Time-sensitive data, not code: squads change every transfer window.
+squad.txt
+squads/
