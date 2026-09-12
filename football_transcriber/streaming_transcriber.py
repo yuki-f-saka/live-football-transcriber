@@ -17,7 +17,7 @@ import numpy as np
 import sounddevice as sd
 
 from .app import OverlayApp
-from .audio import find_device_index
+from .audio import InputMonitor, find_device_index
 from .config import Settings
 from .text_filters import looks_like_prompt_echo
 from .vocabulary import Vocabulary
@@ -47,6 +47,11 @@ def run(settings: Settings) -> int:
 
     app = OverlayApp(settings)
     gain = app.attach_gain_control(settings.gain)
+    log.info("Input gain: %.1fx", gain.value)
+    # Issue #27. threshold=None: RealtimeSTT/Silero owns the VAD here, so the
+    # monitor only reports input level and whether any text came back.
+    monitor = InputMonitor(settings.device, None, gain, on_warning=app.push_status)
+    monitor.start()
     app.window.show_partial("▶ Overlay active — loading models...")
 
     max_partial = settings.max_partial_chars
@@ -90,6 +95,7 @@ def run(settings: Settings) -> int:
             log.warning("Audio stream status: %s", status)
         try:
             audio = gain.apply(indata[:, 0])
+            monitor.note_block(float(np.sqrt(np.mean(audio ** 2))))
             recorder.feed_audio((audio * 32767).astype(np.int16).tobytes(), original_sample_rate=sr)
         except Exception:
             log.exception("Exception in audio_callback")
@@ -113,9 +119,12 @@ def run(settings: Settings) -> int:
             if text and text.strip():
                 text = text.strip()
                 if looks_like_prompt_echo(text, prompt):
+                    monitor.note_reject("prompt_echo")
+                    log.debug("rejected (prompt_echo): %r", text)
                     continue
                 text = vocab.correct(text)
                 log.info("[%s] %s", time.strftime("%H:%M:%S"), text)
+                monitor.note_text()
                 app.push_final(text)
                 highlights.handle(text)
 
@@ -123,6 +132,7 @@ def run(settings: Settings) -> int:
     recorder_thread.start()
 
     def shutdown():
+        monitor.stop()
         stop_event.set()
         stream.stop()
         stream.close()

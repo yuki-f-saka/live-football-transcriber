@@ -21,7 +21,7 @@ football_transcriber/
 ├── overlay.py                # SubtitleWindow (PyQt6) + status badge
 ├── transcriber.py            # VAD chunking + mlx-whisper backend  ("vad" mode)
 ├── streaming_transcriber.py  # RealtimeSTT backend                 ("streaming" mode)
-├── audio.py                  # device lookup, Gain, KeyboardController (terminal keys)
+├── audio.py                  # device lookup, Gain, KeyboardController, InputMonitor
 ├── vocabulary.py             # Whisper initial_prompt + term/player-name corrections + aliases
 ├── text_filters.py           # is_hallucination(), looks_like_prompt_echo()
 ├── highlights.py             # keyword → event detection with actions (log/notify/sound)
@@ -108,6 +108,7 @@ audio_callback (real-time, 50ms blocks) → Gain.apply() → RMS VAD
             └─ highlights.handle()
                  └─ text_queue → poll (Qt timer, 50ms) → SubtitleWindow.show_text()
 KeyboardController (thread, stdin cbreak) → Gain.set() → push_status() + Settings.save_key("gain")
+InputMonitor (thread, every 20s) → WARNING naming why no subtitle appeared + overlay badge
 ```
 
 Streaming mode captures with sounddevice too (`use_microphone=False`) and hands int16 PCM to `AudioToTextRecorder.feed_audio()` so the same Gain applies.
@@ -152,5 +153,12 @@ highlight_cooldown = 10.0    # seconds before the same event fires again
 ## Logging
 
 - Logs written to `transcriber.log` (`--log-file`) and stdout simultaneously. Root level INFO, `football_transcriber.*` at DEBUG.
+- **Why no subtitles appeared** (#27): `InputMonitor` (`audio.py`) logs a WARNING every 20 s while nothing has been
+  transcribed, naming the cause — idle stream, digital silence (routing), signal below `silence_threshold` (with the
+  observed peak RMS and gain), or every result filtered out (with a per-reason count). Rejected transcriptions are
+  logged individually at DEBUG with their reason (`no_speech` / `empty` / `hallucination` / `prompt_echo`), so
+  `--log-file` shows what was discarded. A short badge also flashes in the overlay, because the terminal is usually
+  not visible while watching. `note_block()`/`note_speech()` run on the real-time audio thread and only bump a
+  counter — all logging happens on the monitor thread.
 - Highlight markers go to `highlights.log` (`--highlight-log`).
 - Thread exception handler is in place for post-crash diagnosis.
