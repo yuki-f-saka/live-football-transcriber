@@ -136,6 +136,10 @@ highlight_cooldown = 10.0    # seconds before the same event fires again
 ## Known issues / gotchas
 
 - **Whisper hallucination**: Crowd noise and BGM cause repeated words or symbol-only output. VAD mode filters via `no_speech_prob > 0.5`, `is_hallucination()` and `looks_like_prompt_echo()` (Whisper sometimes parrots the `initial_prompt` on silence). Streaming mode only applies the prompt-echo check (VAD is delegated to RealtimeSTT/Silero).
+- **`looks_like_prompt_echo()` only fires on a *run* of prompt text** (5+ words, or 12+ characters for CJK).
+  A plain substring test would drop real commentary, because "free kick", "own goal" and every player name
+  are prompt substrings as well as things commentators actually say (#26). The trade-off is that a very short
+  echo ("Football commentary.") can slip through — one stray subtitle beats losing every "Free kick."
 - **CJK languages** use a 2-character minimum in `is_hallucination()` (`Settings.min_alpha_chars()`) so short words like `ゴール` are not dropped.
 - **`initial_prompt` on short chunks**: 1.5 s chunks with a long prompt can increase prompt echoes; keep `FOOTBALL_TERMS_*` short. `--no-vocab` disables it.
 - **Player-name fuzzy correction only handles Latin script** (`_WORD_RE` in `vocabulary.py`); Japanese names are only boosted via the prompt.

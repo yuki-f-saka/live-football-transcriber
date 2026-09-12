@@ -130,6 +130,10 @@ highlight_cooldown = 10.0    # 同じイベントが再発火するまでの秒�
 ## 既知の問題 / 注意事項
 
 - **Whisper hallucination（幻覚）**: 観客ノイズや BGM により、繰り返し語や記号のみのテキストが生成されることがある。VAD モードは `no_speech_prob > 0.5`、`is_hallucination()`、`looks_like_prompt_echo()`（無音時に Whisper が `initial_prompt` をそのまま出力する現象）でフィルタ。streaming モードはプロンプト反復チェックのみ（VAD は RealtimeSTT/Silero に委任）。
+- **`looks_like_prompt_echo()` はプロンプトの「連なり」にのみ反応する**（5語以上、CJK は12文字以上）。
+  単純な部分文字列判定だと実際の実況が消える。"free kick"、"own goal"、全選手名はプロンプトの部分文字列で
+  あると同時に実況者が実際に口にする語だから（#26）。トレードオフとして極端に短いエコー
+  （"Football commentary."）は通過しうるが、毎回 "Free kick." を失うよりはマシという判断。
 - **CJK 言語**では `is_hallucination()` の最小文字数を 2 にしている（`Settings.min_alpha_chars()`）。`ゴール` のような短い語が落ちないようにするため。
 - **短いチャンクへの `initial_prompt`**: 1.5 秒チャンクに長いプロンプトを与えるとプロンプト反復が増えることがある。`FOOTBALL_TERMS_*` は短く保つこと。`--no-vocab` で無効化可能。
 - **選手名のファジー補正はラテン文字のみ対応**（`vocabulary.py` の `_WORD_RE`）。日本語の名前はプロンプトによる補強のみ。
