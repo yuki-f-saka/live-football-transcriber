@@ -25,7 +25,7 @@ football_transcriber/
 ├── vocabulary.py             # Whisper initial_prompt + term/player-name corrections + aliases
 ├── text_filters.py           # is_hallucination(), looks_like_prompt_echo()
 ├── highlights.py             # keyword → event detection with actions (log/notify/sound)
-└── macos.py                  # PyObjC: overlay over fullscreen apps / all Spaces
+└── macos.py                  # PyObjC: accessory policy + overlay over fullscreen apps / all Spaces
 tests/                        # pytest (pure-Python units; no audio/GPU needed)
 overlay_transcribe.py         # thin wrapper == football-transcriber vad
 overlay_streaming.py          # thin wrapper == football-transcriber streaming
@@ -144,7 +144,15 @@ highlight_cooldown = 10.0    # seconds before the same event fires again
 - **A long `--players-file` can overflow the prompt**: Whisper's `initial_prompt` holds ~224 tokens; a full 25-man squad plus the football terms is already ~150-180. Two squads will be silently truncated — list one team, or just the players on the ball.
 - **`silence_threshold` sensitivity**: Optimal value varies by environment. Too low increases hallucinations. Runtime gain (`+`/`-`) effectively shifts it.
 - **`max_speech = 1.5`**: Commentary runs continuously, so VAD may never detect silence; this force-flushes long utterances.
-- **Fullscreen overlay** relies on `NSWindowCollectionBehaviorFullScreenAuxiliary` + `NSScreenSaverWindowLevel` applied after `show()`. If Qt ever recreates the native window (e.g. screen change), the flags would need re-applying.
+- **Fullscreen overlay** needs three things together (#33), not just the collection-behaviour flags:
+  `NSApplicationActivationPolicyAccessory` (a regular Dock app is not treated as an overlay utility),
+  `CanJoinAllSpaces | FullScreenAuxiliary | IgnoresCycle` at `NSScreenSaverWindowLevel`, and re-applying
+  them afterwards. `Stationary` must **not** be set — Apple documents it as keeping the window "visible and
+  stationary, like the desktop window", which pins the bar to the desktop Space. Qt's own default after
+  `show()` is `FullScreenPrimary`, so whenever Qt recreates the native NSWindow the fix is silently undone;
+  `OverlayApp._setup_fullscreen_overlay()` re-asserts the value every 2 s and on `screenChanged`, and
+  `macos.reapply_if_reverted()` logs each repair. `make_visible_over_fullscreen()` reads the behaviour back
+  and returns False on a mismatch instead of logging a success it did not verify.
 - **Keyboard control needs a TTY**: when stdin is not a terminal (launched from an IDE/launchd) gain can only be set with `--gain`.
 
 ---

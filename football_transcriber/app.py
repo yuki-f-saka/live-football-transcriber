@@ -65,14 +65,37 @@ class OverlayApp:
         self.window = SubtitleWindow(settings)
         self.window.show()
         self.window.raise_()
+        self._overlay_timer = None
         if settings.fullscreen_overlay and sys.platform == "darwin":
-            from .macos import make_visible_over_fullscreen
-            make_visible_over_fullscreen(self.window)
+            self._setup_fullscreen_overlay()
 
         self.text_queue: "queue.Queue[tuple[str, str]]" = queue.Queue()
         self._poll_timer = QTimer()
         self._poll_timer.timeout.connect(self._poll_text)
         self._poll_timer.start(50)
+
+    def _setup_fullscreen_overlay(self) -> None:
+        """Float the bar over other apps' fullscreen Spaces, and keep it that way (#33).
+
+        Qt recreates the native NSWindow on some screen/Space changes, resetting
+        the collection behaviour to its default and silently undoing the fix, so
+        the intended value is re-asserted periodically and on screen changes
+        rather than only once at startup.
+        """
+        from .macos import make_visible_over_fullscreen, reapply_if_reverted, use_accessory_activation_policy
+
+        use_accessory_activation_policy()
+        if not make_visible_over_fullscreen(self.window):
+            return
+
+        handle = self.window.windowHandle()
+        if handle is not None:
+            handle.screenChanged.connect(lambda _screen: reapply_if_reverted(self.window))
+
+        # Cheap (two ObjC calls) and only acts when the behaviour actually reverted.
+        self._overlay_timer = QTimer()
+        self._overlay_timer.timeout.connect(lambda: reapply_if_reverted(self.window))
+        self._overlay_timer.start(2000)
 
     # -- called from any thread --
     def push_final(self, text: str) -> None:
