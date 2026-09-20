@@ -181,7 +181,12 @@ highlight_cooldown = 10.0    # seconds before the same event fires again
   accented letter into a separator, so "Darwin Núñez, Luis Díaz" normalises to six tokens, crosses the
   5-word threshold and gets dropped as an echo. Squad lists are full of diacritics; keep `\w`.
 - **CJK languages** use a 2-character minimum in `is_hallucination()` (`Settings.min_alpha_chars()`) so short words like `ゴール` are not dropped.
-- **`initial_prompt` on short chunks**: 1.5 s chunks with a long prompt can increase prompt echoes; keep `FOOTBALL_TERMS_*` short. `--no-vocab` disables it.
+- **Term corrections must be anchored on context, not on the mis-heard word** (#32): a `max_speech` cut clips
+  the final consonant, and `"card"` becomes `"car"` — an ordinary English word. `_CORRECTIONS_EN` therefore
+  matches `"(yellow|red) car/cart"`, never `"car"` alone, and `"upside position"`, never `"upside"`. Corrections
+  run before `highlights.handle()`, so fixing one also recovers the event marker. Synonyms are *not* corrections:
+  `"extra time"` (the 30 minutes in a knockout) and `"added time"` are correct football English and are left alone.
+- **`initial_prompt` on short chunks**: a short chunk (1-2 s) with a long prompt can increase prompt echoes; keep `FOOTBALL_TERMS_*` short. `--no-vocab` disables it.
 - **Player-name fuzzy correction only handles Latin script** (`_WORD_RE` in `vocabulary.py`); Japanese names are only boosted via the prompt.
 - **Fuzzy matching misses surname-only mis-hearings**: `name_cutoff = 0.8`, but "Sacker" scores only 0.6 against "Saka", and windows under 4 characters are not fuzzy-matched at all. Use an alias (`Saka=Sacker|Sarker`) — aliases are matched exactly, so they bypass both limits. They never enter the prompt (they are wrong spellings by definition).
 - **Aliases replace conservatively**: a surname alias never invents a first name ("Sacker" → "Saka", not "Bukayo Saka") and never repeats one already present ("Kai Havits" → "Kai Havertz"). See `Vocabulary._fit_replacement()`.

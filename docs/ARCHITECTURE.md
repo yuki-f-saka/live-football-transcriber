@@ -184,6 +184,14 @@ Applied in this order to every finalized transcript:
    only on windows that start with a capitalised word (so `salad` never becomes
    `Salah`). Aliases exist because fuzzy matching misses surname-only
    mis-hearings; `Saka=Sacker` is matched exactly and bypasses the cutoff.
+
+   Every term correction is anchored on a word that makes the phrase wrong, not
+   on the mis-heard word itself: `"yellow car"` → `"yellow card"` (#32), while
+   `"the car is parked"` is left alone. Corrections run *before*
+   `HighlightDetector.handle()`, so fixing the text can also recover an event
+   marker — but only for events that are switched on: `yellow_card` is not in
+   `DEFAULT_EVENTS`, and the plural form (`"red cars"` → `"red cards"`) does not
+   match the `red_card` pattern, which anchors on the singular.
 4. **`HighlightDetector.handle(text)`** (`highlights.py`) — matches the text
    against per-event regexes (English + Japanese), applies a per-event cooldown
    so `"GOAL! GOAL! GOAL!"` fires once, then runs the configured actions:
