@@ -24,6 +24,10 @@ PROMPT_EN = (
     "counter-attack, stoppage time, own goal, Premier League. "
     "Players: David Raya, Ben White, Declan Rice, Bukayo Saka, Kai Havertz."
 )
+PROMPT_ACCENTS = (
+    "Football commentary. Terms: offside, free kick, penalty. "
+    "Players: Darwin Núñez, Luis Díaz, Ibrahima Konaté, Mohamed Salah."
+)
 PROMPT_JA = (
     "サッカー実況。用語: オフサイド、スルーパス、ハットトリック、フリーキック、PK、"
     "コーナーキック、ゴールキーパー、ミッドフィルダー、ストライカー、VAR、アディショナルタイム。"
@@ -49,6 +53,22 @@ class PromptEchoTests(unittest.TestCase):
                      "Declan Rice.", "Bukayo Saka!", "The goalkeeper."):
             with self.subTest(text=text):
                 self.assertFalse(looks_like_prompt_echo(text, PROMPT_EN))
+
+    def test_accented_names_are_not_split_into_extra_tokens(self):
+        """Stripping diacritics inflates the word count and fakes a long run.
+
+        "Darwin Núñez, Luis Díaz" is two names, but an ASCII-only normalisation
+        turns it into six tokens ("darwin n ez luis d az") — over the threshold,
+        a prompt substring, and dropped. Squad lists are full of these.
+        """
+        for text in ("Darwin Núñez, Luis Díaz.", "Núñez, Díaz, Konaté!",
+                     "Ibrahima Konaté, Mohamed Salah."):
+            with self.subTest(text=text):
+                self.assertFalse(looks_like_prompt_echo(text, PROMPT_ACCENTS))
+
+    def test_a_real_run_of_accented_names_is_still_dropped(self):
+        self.assertTrue(looks_like_prompt_echo(
+            "Players: Darwin Núñez, Luis Díaz, Ibrahima Konaté, Mohamed Salah.", PROMPT_ACCENTS))
 
     def test_normal_commentary_is_kept(self):
         self.assertFalse(looks_like_prompt_echo("Saka drives forward on the right wing.", PROMPT_EN))
