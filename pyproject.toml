@@ -21,8 +21,13 @@ dependencies = [
 streaming = ["RealtimeSTT"]
 dev = [
     "pytest>=8",
-    "ruff>=0.16,<1",
-    "mypy>=2.0,<3",
+    # Pinned to a feature series, not a floor: both tools add diagnostics in
+    # minor releases, and an unrelated pull request going red because ruff
+    # shipped a new rule is a failure nobody can act on from the diff. Bump
+    # these deliberately, in a commit that also fixes whatever the new version
+    # finds. See docs/QUALITY.md.
+    "ruff==0.16.*",
+    "mypy==2.3.*",
 ]
 
 [project.scripts]
