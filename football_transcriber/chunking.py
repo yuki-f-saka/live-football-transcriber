@@ -41,17 +41,24 @@ def split_for_flush(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Split a force-flushed buffer into ``(chunk_to_transcribe, carry_over)``.
 
-    The carry-over is what the next buffer starts with; it is always strictly
-    shorter than ``buffer``, so a small ``--max-speech`` cannot livelock the
-    callback into flushing the same audio forever.
+    The carry-over is what the next buffer starts with. It never exceeds a third
+    of ``buffer``: a small ``--max-speech`` can then neither livelock the
+    callback nor inflate the number of Whisper calls beyond 1.5x.
     """
     n = len(buffer)
     block = max(1, int(block_seconds * sample_rate))
-    # Both windows are capped as a fraction of the buffer: the chunk keeps at
-    # least half of it, and the overlap fallback at most a quarter. Together
-    # that bounds the carry-over at 3/4 of the buffer for any settings.
-    overlap = min(int(overlap_seconds * sample_rate), n // 4)
-    search = min(int(search_seconds * sample_rate), n // 2)
+    # The carry-over is re-transcribed, so it is a tax on the flush rate: every
+    # sample carried over is a sample Whisper sees twice. Bound it at a third of
+    # the buffer, which caps the cost at 1.5x the flush rate of a naive cut no
+    # matter how small --max-speech is. Without that cap the two windows are
+    # fixed sizes against a shrinking buffer: at --max-speech 1.0 they consumed
+    # 0.75 s of every 1.0 s buffer, leaving 0.25 s of new audio per flush — four
+    # Whisper calls per second of audio, which outruns even small.en and grows
+    # audio_queue without bound. The search window gets two thirds of the budget
+    # and the overlap the rest, so a long buffer keeps the full 0.6 s / 0.3 s.
+    budget = n // 3
+    search = min(int(search_seconds * sample_rate), 2 * budget // 3)
+    overlap = min(int(overlap_seconds * sample_rate), budget - search)
 
     if search < 2 * block:
         # Too short to choose between blocks — cut at the end, and still carry

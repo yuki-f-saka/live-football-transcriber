@@ -133,7 +133,7 @@ Settings resolve as: built-in defaults → config file → CLI flags. Use `--sho
 | `highlight_sound` | `--highlight-sound` | — | Sound file to play per event |
 | `highlight_log` | `--highlight-log` | `highlights.log` | Timestamped marker file (for clipping) |
 | `font_size` | `--font-size` | `30` | Subtitle font size |
-| `subtitle_seconds` | `--subtitle-seconds` | `4.0` | How long each subtitle stays on screen |
+| `subtitle_seconds` | `--subtitle-seconds` | `6.0` | How long each subtitle stays on screen |
 | `screen` | `--screen` | `1` | Screen to display on (0 = main, 1 = external) |
 | `fullscreen_overlay` | `--no-fullscreen` | on | Show over fullscreen apps / all Spaces (PyObjC) |
 | `max_partial_chars` | — | `80` | Max characters of partial text (streaming) |

@@ -71,18 +71,32 @@ class SplitForFlushTests(unittest.TestCase):
         chunk, _ = split_for_flush(buf, SR, THRESHOLD)
         self.assertGreater(len(chunk) / SR, 4.3)
 
-    def test_carry_is_always_shorter_than_the_buffer(self):
-        """Progress guarantee: a carry as long as the buffer would re-flush forever.
+    def test_carry_never_exceeds_a_third_of_the_buffer(self):
+        """The carry-over is re-transcribed, so it is a tax on the flush rate.
 
-        --max-speech is user-supplied and can be smaller than the search window
-        and the overlap put together.
+        --max-speech is user-supplied. With fixed 0.6 s / 0.3 s windows against
+        a 1.0 s buffer, 0.75 s of every buffer was carried over: 0.25 s of new
+        audio per flush, four Whisper calls per second of audio, and an
+        audio_queue that grows without bound. A third of the buffer caps the
+        cost at 1.5x the flush rate of a naive cut, whatever --max-speech is.
         """
-        for max_speech in (0.05, 0.1, 0.2, 0.5, 1.0, 1.5, 5.0):
+        for max_speech in (0.05, 0.1, 0.2, 0.5, 1.0, 1.5, 2.5, 5.0):
             with self.subTest(max_speech=max_speech):
                 buf = signal(max_speech, LOUD)
                 chunk, carry = split_for_flush(buf, SR, THRESHOLD)
-                self.assertLess(len(carry), len(buf))
-                self.assertGreater(len(chunk), 0)
+                self.assertLessEqual(len(carry), len(buf) / 3)
+                # ... and the chunk keeps the rest, so it never drops below
+                # min_speech at any --max-speech the CLI accepts.
+                self.assertGreaterEqual(len(chunk), len(buf) * 2 / 3)
+
+    def test_flush_rate_stays_near_the_naive_one(self):
+        """New audio per flush, which is what decides whether Whisper keeps up."""
+        for max_speech in (0.5, 1.0, 1.5, 5.0):
+            with self.subTest(max_speech=max_speech):
+                buf = signal(max_speech, LOUD)
+                _, carry = split_for_flush(buf, SR, THRESHOLD)
+                new_audio = (len(buf) - len(carry)) / SR
+                self.assertGreaterEqual(new_audio, max_speech * 2 / 3)
 
     def test_buffer_too_short_to_choose_is_flushed_whole(self):
         buf = signal(0.06, LOUD)

@@ -80,7 +80,10 @@ class Settings:
     font_color_partial: str = "white"
     bg_color: str = "#111111"
     bg_opacity: int = 200                  # 0 (transparent) .. 255 (opaque)
-    subtitle_seconds: float = 4.0          # auto-clear delay for finalized subtitle
+    # Auto-clear delay for a finalized subtitle. Keep it above max_speech, or
+    # the overlay blanks between consecutive chunks of continuous commentary —
+    # the flush interval is max_speech plus transcription latency.
+    subtitle_seconds: float = 6.0
     screen_margin_y: int = 40              # px from top of screen
     window_width_ratio: float = 0.65       # subtitle bar width as fraction of screen width
     screen: int = 1                        # 0 = main screen, 1 = first external monitor, ...

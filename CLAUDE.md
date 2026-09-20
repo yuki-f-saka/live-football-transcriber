@@ -149,7 +149,7 @@ post_speech_silence = 0.3    # silence that triggers transcription              
 min_speech = 0.3             # shorter utterances are ignored                    (--min-speech)
 max_speech = 5.0             # force-flush for continuous commentary             (--max-speech)
 max_partial_chars = 80       # streaming: cap partial text to avoid overflow
-subtitle_seconds = 4.0       # auto-clear timer                                  (--subtitle-seconds)
+subtitle_seconds = 6.0       # auto-clear timer; keep > max_speech               (--subtitle-seconds)
 screen = 1                   # 0 = main, 1 = external                            (--screen)
 gain = 1.0                   # input gain, 0..5                                  (--gain, +/- keys)
 highlight_cooldown = 10.0    # seconds before the same event fires again
@@ -183,9 +183,10 @@ highlight_cooldown = 10.0    # seconds before the same event fires again
   halves (empty / `no_speech`), so a long sentence produces no subtitle at all — measured 62% rejects in a real
   session. `chunking.split_for_flush()` cuts at the quietest 50 ms block in the last 0.6 s instead, and carries
   the last 0.3 s into the next buffer when even that block is above `silence_threshold`. Two invariants it must
-  keep: the carry-over is always **strictly shorter** than the buffer (otherwise a small `--max-speech`
-  re-flushes the same audio on every block, forever), and both pieces are **copies**, because the callback keeps
-  concatenating into its buffer while the chunk sits in the queue.
+  keep: the carry-over never exceeds **a third of the buffer** (it is re-transcribed, so it taxes the flush rate —
+  fixed 0.6 s / 0.3 s windows against a 1.0 s buffer left only 0.25 s of new audio per flush, four Whisper calls
+  per second of audio, and an `audio_queue` that grows without bound), and both pieces are **copies**, because the
+  callback keeps concatenating into its buffer while the chunk sits in the queue.
 - **A shorter `max_speech` is not cheaper.** Whisper pads every input to 30 s, so cost per chunk is flat
   (medium.en: ~0.8 s for a 1.5 s *or* a 6 s chunk). Shortening it costs *more* GPU time and fragments more.
   The defaults (`5.0` / `--silence 0.3`) come from a measured 60 s trace: forced mid-word cuts 48% → 17%.
