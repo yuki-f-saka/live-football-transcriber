@@ -19,7 +19,7 @@ import sounddevice as sd
 from .app import OverlayApp
 from .audio import InputMonitor, find_device_index
 from .config import Settings
-from .text_filters import looks_like_prompt_echo
+from .text_filters import is_hallucination, looks_like_prompt_echo
 from .vocabulary import Vocabulary
 
 log = logging.getLogger(__name__)
@@ -87,6 +87,7 @@ def run(settings: Settings) -> int:
     log.info("Models loaded.")
 
     sr = settings.sample_rate
+    min_alpha = settings.min_alpha_chars()
 
     def audio_callback(indata, _frames, _time_info, status):
         # Real-time thread: apply gain, convert to int16 PCM and hand off. No blocking here.
@@ -121,6 +122,14 @@ def run(settings: Settings) -> int:
             text = recorder.text()
             if text and text.strip():
                 text = text.strip()
+                # faster-whisper produces the same repetition loops and the
+                # same training-data boilerplate as mlx-whisper, so this
+                # backend needs the same filter (#31). VAD stays delegated to
+                # RealtimeSTT/Silero; only the text checks are shared.
+                if is_hallucination(text, min_alpha):
+                    monitor.note_reject("hallucination")
+                    log.debug("rejected (hallucination): %r", text)
+                    continue
                 if looks_like_prompt_echo(text, prompt):
                     monitor.note_reject("prompt_echo")
                     log.debug("rejected (prompt_echo): %r", text)

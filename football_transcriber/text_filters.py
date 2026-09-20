@@ -18,7 +18,17 @@ def _normalise(text: str) -> str:
 # A cycle has to be this long before periodicity means anything: "banana" and
 # "Nou! Nou!" are periodic too, and short strings hit a cycle by accident.
 _MIN_CYCLE_CHARS = 16
+# Japanese fits a whole sentence into 16 characters, so the same threshold would
+# exempt every realistic CJK loop ("ゴール" x4 is 12 characters).
+_MIN_CYCLE_CHARS_CJK = 8
+# A long repeating unit is a hallucination at four cycles. A *short* one is a
+# chant a commentator actually produces — "Come on, come on, come on, come on!"
+# is a 6-character unit repeated four times — so a short unit has to repeat
+# more often before we believe it. Every one of the nine repetitions in the
+# 4854-line reference log clears the higher bar (5 to 111 cycles).
 _MIN_CYCLES = 4
+_MIN_CYCLES_SHORT_UNIT = 6
+_SHORT_UNIT_CHARS = 10
 
 # Phrases Whisper emits from its training data (video sign-offs, subtitle
 # credits) when it is fed noise. They are not repetitive and not prompt echoes,
@@ -27,7 +37,10 @@ _MIN_CYCLES = 4
 # cheaper than the alternative, which is boilerplate appearing over live play.
 _BOILERPLATE = (
     "thanks for watching", "thank you for watching", "thanks for listening",
-    "see you next time", "see you in the next", "please subscribe",
+    # "see you in the next" alone would also drop "see you in the next few
+    # minutes after the break" and "see you in the next round" — mid-match
+    # phrases, not sign-offs. Only the video-specific form is boilerplate.
+    "see you next time", "see you in the next video", "please subscribe",
     "like and subscribe", "subscribe to the channel", "subtitles by",
     "subtitled by", "transcription by", "amara org",
     "ご視聴ありがとう", "チャンネル登録", "最後までご視聴",
@@ -64,11 +77,13 @@ def _is_cyclic(text: str) -> bool:
 
     The shortest period comes from the KMP prefix function; a partial final
     cycle ("abcabcabcab") still counts, because that is what a chunk cut in the
-    middle of a hallucination looks like.
+    middle of a hallucination looks like. How many cycles are needed depends on
+    the size of the unit: four for a phrase, six for a unit under
+    ``_SHORT_UNIT_CHARS``, which is the length of a chant.
     """
     s = _normalise(text).replace(" ", "")
     n = len(s)
-    if n < _MIN_CYCLE_CHARS:
+    if n < (_MIN_CYCLE_CHARS_CJK if _CJK_RE.search(s) else _MIN_CYCLE_CHARS):
         return False
     pi = [0] * n
     k = 0
@@ -79,7 +94,10 @@ def _is_cyclic(text: str) -> bool:
             k += 1
         pi[i] = k
     period = n - pi[n - 1]
-    return period < n and n // period >= _MIN_CYCLES
+    if period >= n:
+        return False
+    needed = _MIN_CYCLES if period >= _SHORT_UNIT_CHARS else _MIN_CYCLES_SHORT_UNIT
+    return n // period >= needed
 
 
 def _is_boilerplate(text: str) -> bool:

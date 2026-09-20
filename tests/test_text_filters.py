@@ -25,9 +25,33 @@ class HallucinationTests(unittest.TestCase):
 
     def test_repeated_phrase_with_spaces(self):
         """A repeated *phrase* is invisible to a per-word comparison too."""
-        self.assertTrue(is_hallucination("come on come on come on come on"))
         self.assertTrue(is_hallucination("Nice carry. " * 6))
         self.assertTrue(is_hallucination("and Buck " * 8))
+
+    def test_a_short_unit_has_to_repeat_more_before_it_is_a_hallucination(self):
+        """A chant is a real thing a commentator does; a loop is not.
+
+        Both are periodic, so length alone cannot separate them. A unit under
+        _SHORT_UNIT_CHARS is chant-sized and needs six cycles; every repetition
+        in the 4854-line reference log clears that (5 to 111 cycles).
+        """
+        for text in ("Come on, come on, come on, come on!",
+                     "Go on, go on, go on, go on!",
+                     "Yes, yes, yes, yes!"):
+            with self.subTest(text=text):
+                self.assertFalse(is_hallucination(text))
+        self.assertTrue(is_hallucination("come on " * 7))
+
+    def test_cjk_cycles_are_measured_on_a_shorter_text(self):
+        """16 characters is a whole sentence in Japanese, not a loop.
+
+        The CJK minimum mirrors min_alpha_chars: without it the cycle check
+        never runs on ja at all. "ゴール" x4 is real commentary; x8 is not.
+        """
+        self.assertFalse(is_hallucination("ゴール" * 4, 2))
+        self.assertTrue(is_hallucination("ゴール" * 8, 2))
+        self.assertTrue(is_hallucination("これは" * 8, 2))
+        self.assertFalse(is_hallucination("素晴らしいシュートでした。", 2))
 
     def test_partial_final_cycle_still_counts(self):
         """A chunk cut mid-hallucination ends in half a cycle (#30 feeds #31)."""
@@ -42,6 +66,18 @@ class HallucinationTests(unittest.TestCase):
                      "ご視聴ありがとうございました。"):
             with self.subTest(text=text):
                 self.assertTrue(is_hallucination(text))
+
+    def test_boilerplate_phrases_do_not_match_mid_match_speech(self):
+        """A blocklist entry is matched anywhere in the line, so it must be specific.
+
+        "see you in the next" would take a whole good subtitle with it; only
+        the video-specific form is boilerplate.
+        """
+        for text in ("And we'll see you in the next few minutes after the break.",
+                     "We'll see you in the next round of the cup.",
+                     "Subscribe to the idea that Arsenal can win this."):
+            with self.subTest(text=text):
+                self.assertFalse(is_hallucination(text))
 
     def test_normal_commentary(self):
         self.assertFalse(is_hallucination("Salah cuts inside and shoots!"))
