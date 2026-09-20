@@ -21,6 +21,7 @@ import sounddevice as sd
 
 from .app import OverlayApp
 from .audio import InputMonitor, find_device_index
+from .chunking import split_for_flush
 from .config import Settings
 from .text_filters import is_hallucination, looks_like_prompt_echo
 from .vocabulary import Vocabulary
@@ -100,11 +101,16 @@ def run(settings: Settings) -> int:
                 vad.silence_samples = 0
                 vad.speech_buffer = np.concatenate([vad.speech_buffer, audio])
 
-                # Safety flush for very long continuous speech
+                # Safety flush for very long continuous speech. Commentary
+                # rarely pauses, so this — not post_speech_silence — is what
+                # usually segments the audio; cutting at exactly max_speech
+                # cuts mid-word and both halves are then rejected (#30).
                 if len(vad.speech_buffer) >= max_speech_samples:
+                    chunk, carry = split_for_flush(
+                        vad.speech_buffer, sr, silence_threshold)
                     monitor.note_speech()
-                    audio_queue.put(vad.speech_buffer.copy())
-                    vad.speech_buffer = np.zeros(0, dtype=np.float32)
+                    audio_queue.put(chunk)
+                    vad.speech_buffer = carry
 
             elif vad.is_speaking:
                 # Silence after speech: keep buffering and count silence samples

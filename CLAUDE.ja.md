@@ -18,6 +18,7 @@ football_transcriber/
 ├── streaming_transcriber.py  # RealtimeSTT バックエンド（"streaming" モード）
 ├── audio.py                  # デバイス検索、Gain、KeyboardController、InputMonitor
 ├── vocabulary.py             # Whisper initial_prompt + 用語/選手名補正 + エイリアス
+├── chunking.py               # 強制フラッシュ時の切断位置（静かなブロック + キャリーオーバー）
 ├── text_filters.py           # is_hallucination()、looks_like_prompt_echo()
 ├── highlights.py             # キーワード → イベント検出とアクション（ログ/通知/音）
 └── macos.py                  # PyObjC: accessory ポリシー + フルスクリーンアプリ上 / 全 Space に表示
@@ -138,11 +139,11 @@ streaming モードも sounddevice で取り込み（`use_microphone=False`）�
 ```python
 device = "BlackHole 2ch"
 silence_threshold = 0.03     # RMS。観客ノイズをフィルタするため意図的に高め       (--threshold)
-post_speech_silence = 0.4    # この長さの無音で文字起こしをトリガー               (--silence)
+post_speech_silence = 0.3    # この長さの無音で文字起こしをトリガー               (--silence)
 min_speech = 0.3             # これより短い発話は無視                             (--min-speech)
-max_speech = 1.5             # 連続する実況を強制フラッシュ                       (--max-speech)
+max_speech = 5.0             # 連続する実況を強制フラッシュ                       (--max-speech)
 max_partial_chars = 80       # streaming: partial テキストの文字数上限
-subtitle_seconds = 4.0       # 自動クリアまでの秒数                               (--subtitle-seconds)
+subtitle_seconds = 6.0       # 自動クリアまでの秒数。max_speech より大きく保つ    (--subtitle-seconds)
 screen = 1                   # 0 = メイン、1 = 外部モニター                       (--screen)
 gain = 1.0                   # 入力ゲイン 0〜5                                    (--gain, +/- キー)
 highlight_cooldown = 10.0    # 同じイベントが再発火するまでの秒数
@@ -171,7 +172,18 @@ highlight_cooldown = 10.0    # 同じイベントが再発火するまでの秒�
 - **エイリアスの置換は保守的**: 姓のエイリアスがファーストネームを勝手に補うことはなく（"Sacker" → "Saka"、"Bukayo Saka" にはしない）、既にある語を重複させることもない（"Kai Havits" → "Kai Havertz"）。`Vocabulary._fit_replacement()` を参照。
 - **`--players-file` が長すぎるとプロンプトが溢れる**: Whisper の `initial_prompt` は約224トークンまで。25人分の名簿＋サッカー用語で既に約150〜180トークンあるため、2チーム分を渡すと黙って切り捨てられる。1チーム分、またはボールに関わる選手だけにする。
 - **`silence_threshold` の調整**: 最適値は環境によって異なる。低くしすぎると hallucination が増える。実行中のゲイン（`+`/`-`）で実質的に閾値をずらせる。
-- **`max_speech = 1.5`**: 実況は連続発話が多く VAD が無音を検出できないことがあるため、長い発話を強制的にフラッシュする。
+- **`max_speech` は安全弁ではなく主要な分割機構**（#30）。実況は途切れないため `post_speech_silence` はほとんど発火しない。
+  `max_speech` ちょうどで切ると単語の途中で切れ、Whisper が前半・後半の**両方**を空 / `no_speech` として捨てるため、
+  長い文がまるごと字幕に出なくなる（実セッションで 62% が棄却）。`chunking.split_for_flush()` は直近 0.6 秒で最も静かな
+  50ms ブロックを探してそこで切り、そのブロックも `silence_threshold` を超えている場合は最後の 0.3 秒を次のバッファに
+  持ち越す。守るべき不変条件は 2 つ: キャリーオーバーは**バッファの 1/3 を超えない**こと
+  （持ち越した分は再度 Whisper に渡るためフラッシュ頻度への課税になる。0.6 秒 / 0.3 秒の固定窓を 1.0 秒のバッファに
+  適用すると新規音声は 1 フラッシュあたり 0.25 秒しか進まず、音声 1 秒あたり Whisper 呼び出し 4 回となって
+  `audio_queue` が無制限に伸びる）、および両者が**コピー**であること（キューに入っている間もコールバックは
+  バッファに連結し続けるため）。
+- **`max_speech` を短くしても速くはならない。** Whisper は入力を常に 30 秒にパディングするため、チャンク単位のコストは
+  ほぼ一定（medium.en で 1.5 秒でも 6 秒でも約 0.8 秒）。短くすると GPU 時間はむしろ増え、断片化も増える。
+  デフォルト（`5.0` / `--silence 0.3`）は 60 秒の実測トレースに基づく: 単語途中での強制切断 48% → 17%。
 - **フルスクリーン上表示**は collection behaviour だけでは足りず、3点セットが必要（#33）:
   `NSApplicationActivationPolicyAccessory`（Dock アイコンを持つ通常アプリはオーバーレイとして扱われない）、
   `CanJoinAllSpaces | FullScreenAuxiliary | IgnoresCycle` を `NSScreenSaverWindowLevel` で適用、そして
