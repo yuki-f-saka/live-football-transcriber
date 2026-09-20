@@ -13,9 +13,93 @@ class HallucinationTests(unittest.TestCase):
         self.assertTrue(is_hallucination("far far far far far"))
         self.assertTrue(is_hallucination("and then tell tell tell tell me"))
 
+    def test_repeated_phrase_without_spaces(self):
+        """Issue #31: the cycle boundary is not a space, so split() cannot see it.
+
+        "Would it be" * 70 tokenises as ["Would", "it", "beWould", "it", ...] —
+        no four consecutive tokens are equal and the word-level check never
+        fires, so ~70 repetitions reached the overlay.
+        """
+        self.assertTrue(is_hallucination("Would it be" * 70))
+        self.assertTrue(is_hallucination("abcabcabcabcabcabcab"))
+
+    def test_repeated_phrase_with_spaces(self):
+        """A repeated *phrase* is invisible to a per-word comparison too."""
+        self.assertTrue(is_hallucination("Nice carry. " * 6))
+        self.assertTrue(is_hallucination("and Buck " * 8))
+
+    def test_a_short_unit_has_to_repeat_more_before_it_is_a_hallucination(self):
+        """A chant is a real thing a commentator does; a loop is not.
+
+        Both are periodic, so length alone cannot separate them. A unit under
+        _SHORT_UNIT_CHARS is chant-sized and needs six cycles; every repetition
+        in the 4854-line reference log clears that (5 to 111 cycles).
+        """
+        for text in ("Come on, come on, come on, come on!",
+                     "Go on, go on, go on, go on!",
+                     "Yes, yes, yes, yes!"):
+            with self.subTest(text=text):
+                self.assertFalse(is_hallucination(text))
+        self.assertTrue(is_hallucination("come on " * 7))
+
+    def test_cjk_cycles_are_measured_on_a_shorter_text(self):
+        """16 characters is a whole sentence in Japanese, not a loop.
+
+        The CJK minimum mirrors min_alpha_chars: without it the cycle check
+        never runs on ja at all. "ゴール" x4 is real commentary; x8 is not.
+        """
+        self.assertFalse(is_hallucination("ゴール" * 4, 2))
+        self.assertTrue(is_hallucination("ゴール" * 8, 2))
+        self.assertTrue(is_hallucination("これは" * 8, 2))
+        self.assertFalse(is_hallucination("素晴らしいシュートでした。", 2))
+
+    def test_partial_final_cycle_still_counts(self):
+        """A chunk cut mid-hallucination ends in half a cycle (#30 feeds #31)."""
+        self.assertTrue(is_hallucination("Under yourases. " * 4 + "Under your"))
+
+    def test_boilerplate_from_whispers_training_data(self):
+        """Not repetitive, not a prompt echo — nothing else catches these."""
+        for text in ("And that's it for the! We'll see you next time in space!",
+                     "Thanks for watching.",
+                     "Thank you for watching on ewilbeat.",
+                     "Subtitles by the Amara.org community",
+                     "ご視聴ありがとうございました。"):
+            with self.subTest(text=text):
+                self.assertTrue(is_hallucination(text))
+
+    def test_boilerplate_phrases_do_not_match_mid_match_speech(self):
+        """A blocklist entry is matched anywhere in the line, so it must be specific.
+
+        "see you in the next" would take a whole good subtitle with it; only
+        the video-specific form is boilerplate.
+        """
+        for text in ("And we'll see you in the next few minutes after the break.",
+                     "We'll see you in the next round of the cup.",
+                     "Subscribe to the idea that Arsenal can win this."):
+            with self.subTest(text=text):
+                self.assertFalse(is_hallucination(text))
+
     def test_normal_commentary(self):
         self.assertFalse(is_hallucination("Salah cuts inside and shoots!"))
         self.assertFalse(is_hallucination("far far away"))
+
+    def test_real_commentary_is_not_cyclic(self):
+        """Replayed from transcriber.log: these are the shapes closest to a cycle.
+
+        Short repetition is ordinary in commentary ("Goal! Goal! Goal!"), which
+        is why the character check needs 16+ characters and 4+ cycles before it
+        judges anything. Across 4854 accepted lines of a real session the two
+        new checks flag 12, all of them genuine hallucinations.
+        """
+        for text in ("Goal! Goal! Goal!",
+                     "Come on, come on!",
+                     "That's a yellow card for Rice.",
+                     "Saka, Saka, what a ball from Saka!",
+                     "Ole, ole, ole!",
+                     "It is end to end here at the Emirates.",
+                     "Darwin Núñez, Luis Díaz and Mohamed Salah up front."):
+            with self.subTest(text=text):
+                self.assertFalse(is_hallucination(text))
 
 
 PROMPT_EN = (

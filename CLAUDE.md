@@ -160,6 +160,15 @@ highlight_cooldown = 10.0    # seconds before the same event fires again
 ## Known issues / gotchas
 
 - **Whisper hallucination**: Crowd noise and BGM cause repeated words or symbol-only output. VAD mode filters via `no_speech_prob > 0.5`, `is_hallucination()` and `looks_like_prompt_echo()` (Whisper sometimes parrots the `initial_prompt` on silence). Streaming mode only applies the prompt-echo check (VAD is delegated to RealtimeSTT/Silero).
+- **Repetition is not always word-level** (#31): Whisper emits cycles with no separator ("Would it beWould it be…"),
+  so `split()` yields `["Would", "it", "beWould", …]` and no four tokens are ever equal. `_is_cyclic()` compares
+  characters (spaces removed, shortest period via the KMP prefix function) and accepts a partial final cycle,
+  because a chunk cut mid-hallucination ends in one. It needs 16+ characters and 4+ cycles before judging:
+  "Ole, ole, ole!" and "Goal! Goal! Goal!" are periodic and real. Verified against a real session's 4854 lines —
+  12 flagged, all genuine.
+- **`_BOILERPLATE` costs one subtitle at full time**: "thanks for watching" is Whisper training-data boilerplate
+  *and* something a commentator says when signing off. Dropping that one line is cheaper than letting sign-off
+  text appear over live play, but do not extend the list with phrases that occur during a match.
 - **`looks_like_prompt_echo()` only fires on a *run* of prompt text** (5+ words, or 12+ characters for CJK).
   A plain substring test would drop real commentary, because "free kick", "own goal" and every player name
   are prompt substrings as well as things commentators actually say (#26). The trade-off is that a very short

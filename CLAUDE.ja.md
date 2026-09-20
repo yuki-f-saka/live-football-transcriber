@@ -154,6 +154,15 @@ highlight_cooldown = 10.0    # 同じイベントが再発火するまでの秒�
 ## 既知の問題 / 注意事項
 
 - **Whisper hallucination（幻覚）**: 観客ノイズや BGM により、繰り返し語や記号のみのテキストが生成されることがある。VAD モードは `no_speech_prob > 0.5`、`is_hallucination()`、`looks_like_prompt_echo()`（無音時に Whisper が `initial_prompt` をそのまま出力する現象）でフィルタ。streaming モードはプロンプト反復チェックのみ（VAD は RealtimeSTT/Silero に委任）。
+- **繰り返しは単語単位とは限らない**（#31）。Whisper は区切り無しで周期を出力するため（"Would it beWould it be…"）、
+  `split()` は `["Would", "it", "beWould", …]` となり同一トークンが 4 つ並ぶことはない。`_is_cyclic()` は文字単位で
+  比較する（空白を除去し、KMP の prefix function で最小周期を求める）。最後の周期が途中で切れていても検出する
+  （幻覚の途中で切られたチャンクはそうなるため）。判定には 16 文字以上かつ 4 周期以上を要求する:
+  「Ole, ole, ole!」「Goal! Goal! Goal!」も周期的だが本物の実況だから。実セッション 4854 行で検証し、
+  検出 12 件はすべて本物の幻覚だった。
+- **`_BOILERPLATE` は試合終了時の 1 字幕を犠牲にする**: "thanks for watching" は Whisper の学習データ由来の定型文
+  であると同時に、実況者が締めで実際に言う台詞でもある。その 1 行を落とす方が、試合中に定型文が表示されるより安い。
+  ただし試合中に出現しうるフレーズをこのリストに足さないこと。
 - **`looks_like_prompt_echo()` はプロンプトの「連なり」にのみ反応する**（5語以上、CJK は12文字以上）。
   単純な部分文字列判定だと実際の実況が消える。"free kick"、"own goal"、全選手名はプロンプトの部分文字列で
   あると同時に実況者が実際に口にする語だから（#26）。トレードオフとして極端に短いエコー
