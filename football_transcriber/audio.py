@@ -2,7 +2,18 @@
 
 from __future__ import annotations
 
+import logging
+import os
+import select
+import sys
+import threading
+from collections import Counter
+from collections.abc import Callable
+
+import numpy as np
 import sounddevice as sd
+
+log = logging.getLogger(__name__)
 
 
 def list_input_devices() -> list[tuple[int, str]]:
@@ -26,18 +37,6 @@ def find_device_index(name: str) -> int:
 # ----------------------------------------------------------------------
 # Runtime input gain (issue #2)
 # ----------------------------------------------------------------------
-
-import logging
-import os
-import select
-import sys
-import threading
-from collections import Counter
-from typing import Callable
-
-import numpy as np
-
-log = logging.getLogger(__name__)
 
 
 class Gain:
@@ -184,7 +183,7 @@ class InputMonitor(threading.Thread):
         self,
         device: str,
         threshold: float | None,
-        gain: "Gain | None" = None,
+        gain: Gain | None = None,
         interval: float = 20.0,
         on_warning: Callable[[str], None] | None = None,
         min_speech: float | None = None,
@@ -243,7 +242,7 @@ class InputMonitor(threading.Thread):
         if self.on_warning:
             self.on_warning(badge)
 
-    def _diagnose(self, peak: float, blocks: int, speech: int, rejects: "Counter[str]") -> tuple[str, str]:
+    def _diagnose(self, peak: float, blocks: int, speech: int, rejects: Counter[str]) -> tuple[str, str]:
         """Pick the one explanation the window's numbers actually support.
 
         Order matters, and so does each guard: a branch must never print figures

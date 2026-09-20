@@ -23,6 +23,7 @@ from __future__ import annotations
 import difflib
 import re
 from collections.abc import Iterable
+from functools import partial
 from pathlib import Path
 
 FOOTBALL_TERMS_EN = [
@@ -157,7 +158,7 @@ class Vocabulary:
             return text
         if self.language == "en":
             for pattern, repl in _CORRECTIONS_EN:
-                text = pattern.sub(lambda m, r=repl: _keep_case(m, r), text)
+                text = pattern.sub(partial(_keep_case, replacement=repl), text)
         if self._by_len:
             text = self._correct_names(text)
         return text

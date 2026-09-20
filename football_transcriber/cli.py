@@ -33,7 +33,8 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--model", help="model size (tiny/base/small/medium/large) or full model name; "
                                    "English uses the faster '.en' variants automatically (default: small, ja: medium)")
     g.add_argument("--realtime-model", help="[streaming] model for partial updates (default: tiny.en)")
-    g.add_argument("--lang", dest="language", help="transcription language code, e.g. en, ja (ja switches to multilingual models)")
+    g.add_argument("--lang", dest="language",
+                   help="transcription language code, e.g. en, ja (ja switches to multilingual models)")
     g.add_argument("--gain", type=float,
                    help="input gain multiplier (0 = mute .. 5.0); adjustable at runtime with +/- keys")
 

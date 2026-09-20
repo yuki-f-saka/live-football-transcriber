@@ -74,7 +74,7 @@ def run(settings: Settings) -> int:
     # Show startup message to confirm overlay position
     app.window.show_text("▶ Overlay active — waiting for audio...")
 
-    audio_queue: "queue.Queue[np.ndarray | None]" = queue.Queue()
+    audio_queue: queue.Queue[np.ndarray | None] = queue.Queue()
 
     sr = settings.sample_rate
     post_speech_silence_samples = int(settings.post_speech_silence * sr)
