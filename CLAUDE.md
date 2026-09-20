@@ -27,6 +27,7 @@ football_transcriber/
 ├── highlights.py             # keyword → event detection with actions (log/notify/sound)
 └── macos.py                  # PyObjC: accessory policy + overlay over fullscreen apps / all Spaces
 tests/                        # pytest (pure-Python units; no audio/GPU needed)
+docs/ARCHITECTURE.md          # the full processing flow + the invariants a change must not break
 overlay_transcribe.py         # thin wrapper == football-transcriber vad
 overlay_streaming.py          # thin wrapper == football-transcriber streaming
 ```
@@ -59,13 +60,38 @@ football-transcriber vad --players-file squads/arsenal.txt     # one name (or al
 football-transcriber vad --lang ja --screen 0 --players "三笘,久保"
 football-transcriber vad --highlights goal,penalty --notify
 football-transcriber --screen 0 --gain 1.5 --save    # persist settings to the config file
-python -m pytest
 ```
 
 On first run, models are downloaded from HuggingFace — this takes a few minutes.
 
 Runtime keys (typed in the terminal; the overlay itself is click-through and never has focus):
 `+`/`-`/Up/Down = input gain, `0` = reset, `m` = mute, `q`/Esc = quit. Gain changes are persisted immediately.
+
+---
+
+## Quality gates
+
+Three checks, configured in `pyproject.toml` and run by `.github/workflows/ci.yml`
+on every push and pull request (Linux, Python 3.10 and 3.12):
+
+```bash
+pip install -e ".[dev]"
+ruff check .    # lint: pycodestyle, pyflakes, import order, pyupgrade, bugbear, simplify
+mypy            # type check, football_transcriber/ only
+pytest          # unit tests
+```
+
+Run all three before committing; they are the definition of "green" for this repo.
+
+- `ruff` is configured at `line-length = 120`. Formatting (`ruff format`) is **not**
+  enforced yet — the repo predates it and reformatting would collide with the open PRs.
+- `mypy` pins `platform = "darwin"`, so the Linux runner checks the same branches a
+  local run does. Untyped native bindings (`sounddevice`, `mlx_whisper`, `RealtimeSTT`,
+  `AppKit`, `objc`) are listed under `ignore_missing_imports`; add new ones there rather
+  than sprinkling `# type: ignore`.
+- CI installs on Linux, where the `sys_platform == "darwin"` dependencies (mlx-whisper,
+  pyobjc) are absent. Anything that touches CoreAudio, Metal or the window server can
+  therefore only be verified by running the app on the Mac.
 
 ---
 

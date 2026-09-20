@@ -22,6 +22,7 @@ football_transcriber/
 ├── highlights.py             # キーワード → イベント検出とアクション（ログ/通知/音）
 └── macos.py                  # PyObjC: accessory ポリシー + フルスクリーンアプリ上 / 全 Space に表示
 tests/                        # pytest（純 Python の単体テスト。音声/GPU 不要）
+docs/ARCHITECTURE.md          # 処理フロー全体と、変更時に壊してはいけない不変条件
 overlay_transcribe.py         # 薄いラッパー == football-transcriber vad
 overlay_streaming.py          # 薄いラッパー == football-transcriber streaming
 ```
@@ -54,13 +55,38 @@ football-transcriber vad --players-file squads/arsenal.txt     # 1行1名（エ�
 football-transcriber vad --lang ja --screen 0 --players "三笘,久保"
 football-transcriber vad --highlights goal,penalty --notify
 football-transcriber --screen 0 --gain 1.5 --save    # 設定ファイルに保存
-python -m pytest
 ```
 
 初回起動時は HuggingFace からモデルをダウンロードするため数分かかる。
 
 実行中のキー操作（ターミナルで入力。オーバーレイ自体はクリック透過でフォーカスを持たない）:
 `+`/`-`/↑/↓ = 入力ゲイン、`0` = リセット、`m` = ミュート、`q`/Esc = 終了。ゲイン変更は即座に保存される。
+
+---
+
+## 品質ゲート
+
+3つのチェックを `pyproject.toml` に設定し、`.github/workflows/ci.yml` が push と
+pull request のたびに実行する（Linux、Python 3.10 と 3.12）:
+
+```bash
+pip install -e ".[dev]"
+ruff check .    # lint: pycodestyle、pyflakes、import 順、pyupgrade、bugbear、simplify
+mypy            # 型チェック（football_transcriber/ のみ）
+pytest          # 単体テスト
+```
+
+コミット前にこの3つを通すこと。このリポジトリで「グリーン」とはこの3つが通る状態を指す。
+
+- `ruff` は `line-length = 120` で設定。フォーマット（`ruff format`）はまだ強制していない
+  — 既存コードが先にあり、全体を整形すると未マージの PR と衝突するため。
+- `mypy` は `platform = "darwin"` を固定しているので、Linux ランナーでもローカルと同じ
+  分岐を検査する。型情報を持たないネイティブバインディング（`sounddevice`、`mlx_whisper`、
+  `RealtimeSTT`、`AppKit`、`objc`）は `ignore_missing_imports` に列挙してある。新しいものは
+  `# type: ignore` を各所に撒くのではなくここに追加すること。
+- CI は Linux 上でインストールするため、`sys_platform == "darwin"` の依存（mlx-whisper、
+  pyobjc）は入らない。CoreAudio / Metal / ウィンドウサーバに触る部分は Mac 上で実際に
+  アプリを動かして確認するしかない。
 
 ---
 
