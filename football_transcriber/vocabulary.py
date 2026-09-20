@@ -49,6 +49,14 @@ _CORRECTIONS_EN: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bcounter[\s]+attack(s?)\b", re.I), r"counter-attack\1"),
     (re.compile(r"\bthrough[\s-]*ball(s?)\b", re.I), r"through ball\1"),
     (re.compile(r"\bstoppage[\s-]*time\b", re.I), "stoppage time"),
+    # A chunk boundary clips the final consonant, and "card" becomes an ordinary
+    # English word (#32). Anchored on the colour: "car" and "cart" on their own
+    # are legitimate, "yellow car" is not. Plural first, so "cards" survives.
+    (re.compile(r"\b(yellow|red)[\s-]+cart?s\b", re.I), r"\1 cards"),
+    (re.compile(r"\b(yellow|red)[\s-]+cart?\b", re.I), r"\1 card"),
+    # Same shape: heard once as "an upside position". "upside" alone is an
+    # ordinary word ("the upside is"), the two-word phrase is not.
+    (re.compile(r"\bupside\s+position\b", re.I), "offside position"),
     (re.compile(r"\bV\.A\.R\.?", re.I), "VAR"),
     (re.compile(r"\bpremier league\b", re.I), "Premier League"),
     (re.compile(r"\bchampions league\b", re.I), "Champions League"),

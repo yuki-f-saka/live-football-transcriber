@@ -19,6 +19,26 @@ class CorrectionTests(unittest.TestCase):
         self.assertEqual(self.v.correct("the V.A.R. check"), "the VAR check")
         self.assertEqual(self.v.correct("in the premier league"), "in the Premier League")
 
+    def test_card_terms(self):
+        """Issue #32: a chunk boundary clips the final consonant of "card"."""
+        self.assertEqual(self.v.correct("That was a yellow car."), "That was a yellow card.")
+        self.assertEqual(self.v.correct("a second yellow cart"), "a second yellow card")
+        self.assertEqual(self.v.correct("straight red car for that"), "straight red card for that")
+        self.assertEqual(self.v.correct("two yellow cars already"), "two yellow cards already")
+        self.assertEqual(self.v.correct("Red car!"), "Red card!")
+
+    def test_card_correction_needs_the_colour(self):
+        """"car" and "cart" are ordinary English words; only the phrase is wrong."""
+        for text in ("the car is parked outside", "he pushed the cart",
+                     "a yellow card", "two red cards", "the yellow shirt"):
+            with self.subTest(text=text):
+                self.assertEqual(self.v.correct(text), text)
+
+    def test_offside_position(self):
+        # Heard as "an upside position"; "upside" on its own stays untouched.
+        self.assertEqual(self.v.correct("in an upside position"), "in an offside position")
+        self.assertEqual(self.v.correct("the upside is clear"), "the upside is clear")
+
     def test_player_fuzzy_match(self):
         self.assertEqual(self.v.correct("Harland scores!"), "Haaland scores!")
         self.assertEqual(self.v.correct("great run by Sala there"), "great run by Salah there")
