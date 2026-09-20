@@ -77,6 +77,7 @@ audio_callback  (CoreAudio real-time thread, 50 ms blocks)
    │  accumulate into VadState.speech_buffer
    │  monitor.note_block(rms) / note_speech()   counters only, never I/O
    │  flush on: post_speech_silence of silence, or max_speech of speech
+   │               (the latter via chunking.split_for_flush → chunk + carry-over)
    ▼
 audio_queue : Queue[np.ndarray | None]
    │
@@ -101,13 +102,19 @@ real-time thread. Per 50 ms block:
 | State | Condition | Action |
 |---|---|---|
 | speech | `rms > silence_threshold` | append block, reset the silence counter |
-| speech, too long | buffer ≥ `max_speech` | flush immediately (commentary rarely pauses) |
+| speech, too long | buffer ≥ `max_speech` | flush at the quietest block near the end, carry the tail over (#30) |
 | trailing silence | was speaking, now quiet | keep appending, count silence |
 | end of utterance | silence ≥ `post_speech_silence` | flush if buffer ≥ `min_speech`, else discard |
 
 `silence_threshold` is intentionally high (0.03): the goal is to reject crowd
 noise, not to catch every whisper. `max_speech` exists because continuous
-commentary may never produce a real pause.
+commentary may never produce a real pause — and because of that it is the
+*primary* segmentation mechanism, not a safety net. Cutting at exactly
+`max_speech` cuts mid-word, and Whisper rejects both halves as empty or
+no_speech, so the sentence disappears entirely. `chunking.split_for_flush()`
+therefore cuts at the quietest 50 ms block in the last 0.6 s, and when even
+that block is above the threshold it carries the last 0.3 s into the next
+buffer so the broken word is whole in one of the two chunks (#30).
 
 ### The real-time rule
 

@@ -123,9 +123,9 @@ Settings resolve as: built-in defaults → config file → CLI flags. Use `--sho
 | `language` | `--lang` | `en` | Whisper language; non-English switches to multilingual models |
 | `gain` | `--gain` | `1.0` | Input gain multiplier (0 = mute … 5) |
 | `silence_threshold` | `--threshold` | `0.03` | RMS below which audio is treated as silence (vad) |
-| `post_speech_silence` | `--silence` | `0.4` | Silence after speech that triggers transcription (s) |
+| `post_speech_silence` | `--silence` | `0.3` | Silence after speech that triggers transcription (s) |
 | `min_speech` | `--min-speech` | `0.3` | Ignore utterances shorter than this (s) |
-| `max_speech` | `--max-speech` | `1.5` | Force-flush after this many seconds of continuous speech (vad) |
+| `max_speech` | `--max-speech` | `5.0` | Force-flush after this many seconds of continuous speech (vad) |
 | `vocabulary` | `--no-vocab` | on | Football prompt hints + corrections |
 | `players` | `--players`, `--players-file` | — | Player/team names to boost and auto-correct; `Name=alias\|alias` for exact fixes |
 | `highlights` | `--highlights` | off | Events to detect: `goal,penalty,red_card,yellow_card,var,offside,free_kick,corner,substitution` or `all` |

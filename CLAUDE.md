@@ -23,6 +23,7 @@ football_transcriber/
 ├── streaming_transcriber.py  # RealtimeSTT backend                 ("streaming" mode)
 ├── audio.py                  # device lookup, Gain, KeyboardController, InputMonitor
 ├── vocabulary.py             # Whisper initial_prompt + term/player-name corrections + aliases
+├── chunking.py               # where to cut a force-flushed speech buffer (quiet block + carry-over)
 ├── text_filters.py           # is_hallucination(), looks_like_prompt_echo()
 ├── highlights.py             # keyword → event detection with actions (log/notify/sound)
 └── macos.py                  # PyObjC: accessory policy + overlay over fullscreen apps / all Spaces
@@ -144,9 +145,9 @@ Streaming mode captures with sounddevice too (`use_microphone=False`) and hands 
 ```python
 device = "BlackHole 2ch"
 silence_threshold = 0.03     # RMS; intentionally high to filter crowd noise    (--threshold)
-post_speech_silence = 0.4    # silence that triggers transcription              (--silence)
+post_speech_silence = 0.3    # silence that triggers transcription              (--silence)
 min_speech = 0.3             # shorter utterances are ignored                    (--min-speech)
-max_speech = 1.5             # force-flush for continuous commentary             (--max-speech)
+max_speech = 5.0             # force-flush for continuous commentary             (--max-speech)
 max_partial_chars = 80       # streaming: cap partial text to avoid overflow
 subtitle_seconds = 4.0       # auto-clear timer                                  (--subtitle-seconds)
 screen = 1                   # 0 = main, 1 = external                            (--screen)
@@ -177,7 +178,17 @@ highlight_cooldown = 10.0    # seconds before the same event fires again
 - **Aliases replace conservatively**: a surname alias never invents a first name ("Sacker" → "Saka", not "Bukayo Saka") and never repeats one already present ("Kai Havits" → "Kai Havertz"). See `Vocabulary._fit_replacement()`.
 - **A long `--players-file` can overflow the prompt**: Whisper's `initial_prompt` holds ~224 tokens; a full 25-man squad plus the football terms is already ~150-180. Two squads will be silently truncated — list one team, or just the players on the ball.
 - **`silence_threshold` sensitivity**: Optimal value varies by environment. Too low increases hallucinations. Runtime gain (`+`/`-`) effectively shifts it.
-- **`max_speech = 1.5`**: Commentary runs continuously, so VAD may never detect silence; this force-flushes long utterances.
+- **`max_speech` is the primary segmentation mechanism, not a safety net** (#30). Commentary runs continuously,
+  so `post_speech_silence` rarely fires. Cutting at exactly `max_speech` cuts mid-word and Whisper rejects *both*
+  halves (empty / `no_speech`), so a long sentence produces no subtitle at all — measured 62% rejects in a real
+  session. `chunking.split_for_flush()` cuts at the quietest 50 ms block in the last 0.6 s instead, and carries
+  the last 0.3 s into the next buffer when even that block is above `silence_threshold`. Two invariants it must
+  keep: the carry-over is always **strictly shorter** than the buffer (otherwise a small `--max-speech`
+  re-flushes the same audio on every block, forever), and both pieces are **copies**, because the callback keeps
+  concatenating into its buffer while the chunk sits in the queue.
+- **A shorter `max_speech` is not cheaper.** Whisper pads every input to 30 s, so cost per chunk is flat
+  (medium.en: ~0.8 s for a 1.5 s *or* a 6 s chunk). Shortening it costs *more* GPU time and fragments more.
+  The defaults (`5.0` / `--silence 0.3`) come from a measured 60 s trace: forced mid-word cuts 48% → 17%.
 - **Fullscreen overlay** needs three things together (#33), not just the collection-behaviour flags:
   `NSApplicationActivationPolicyAccessory` (a regular Dock app is not treated as an overlay utility),
   `CanJoinAllSpaces | FullScreenAuxiliary | IgnoresCycle` at `NSScreenSaverWindowLevel`, and re-applying

@@ -62,9 +62,14 @@ class Settings:
 
     # --- VAD (vad mode) ---
     silence_threshold: float = 0.03        # RMS below this is silence (high on purpose: filters crowd noise)
-    post_speech_silence: float = 0.4       # seconds of silence after speech that triggers transcription
+    post_speech_silence: float = 0.3       # seconds of silence after speech that triggers transcription
     min_speech: float = 0.3                # utterances shorter than this are ignored
-    max_speech: float = 1.5                # force-flush after this many seconds of continuous speech
+    # Force-flush after this many seconds of continuous speech. Measured on a
+    # 60 s trace of live commentary (2026-09-19): 5 s with --silence 0.3 cut
+    # forced mid-word cuts 48% → 17%. Longer is not slower — Whisper pads every
+    # input to 30 s, so a 1.5 s and a 6 s chunk both cost ~0.8 s on medium.en,
+    # and a short max_speech therefore costs *more* GPU time and fragments more.
+    max_speech: float = 5.0
 
     # --- Streaming mode ---
     max_partial_chars: int = 80            # cap partial text to prevent overlay overflow
