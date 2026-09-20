@@ -20,7 +20,7 @@ football_transcriber/
 ├── vocabulary.py             # Whisper initial_prompt + 用語/選手名補正 + エイリアス
 ├── text_filters.py           # is_hallucination()、looks_like_prompt_echo()
 ├── highlights.py             # キーワード → イベント検出とアクション（ログ/通知/音）
-└── macos.py                  # PyObjC: フルスクリーンアプリ上 / 全 Space に表示
+└── macos.py                  # PyObjC: accessory ポリシー + フルスクリーンアプリ上 / 全 Space に表示
 tests/                        # pytest（純 Python の単体テスト。音声/GPU 不要）
 overlay_transcribe.py         # 薄いラッパー == football-transcriber vad
 overlay_streaming.py          # 薄いラッパー == football-transcriber streaming
@@ -150,7 +150,18 @@ highlight_cooldown = 10.0    # 同じイベントが再発火するまでの秒�
 - **`--players-file` が長すぎるとプロンプトが溢れる**: Whisper の `initial_prompt` は約224トークンまで。25人分の名簿＋サッカー用語で既に約150〜180トークンあるため、2チーム分を渡すと黙って切り捨てられる。1チーム分、またはボールに関わる選手だけにする。
 - **`silence_threshold` の調整**: 最適値は環境によって異なる。低くしすぎると hallucination が増える。実行中のゲイン（`+`/`-`）で実質的に閾値をずらせる。
 - **`max_speech = 1.5`**: 実況は連続発話が多く VAD が無音を検出できないことがあるため、長い発話を強制的にフラッシュする。
-- **フルスクリーン上表示**は `show()` 後に `NSWindowCollectionBehaviorFullScreenAuxiliary` + `NSScreenSaverWindowLevel` を適用して実現。Qt がネイティブウィンドウを作り直した場合（画面構成変更など）は再適用が必要になる。
+- **フルスクリーン上表示**は collection behaviour だけでは足りず、3点セットが必要（#33）:
+  `NSApplicationActivationPolicyAccessory`（Dock アイコンを持つ通常アプリはオーバーレイとして扱われない）、
+  `CanJoinAllSpaces | FullScreenAuxiliary | IgnoresCycle` を `NSScreenSaverWindowLevel` で適用、そして
+  その後の再適用。`Stationary` は**付けてはいけない** — Apple の定義が「デスクトップウィンドウのように静止して表示」
+  であり、バーがデスクトップ Space に固定される原因になる。`show()` 直後の Qt のデフォルトは `FullScreenPrimary` なので、
+  Qt がネイティブウィンドウを作り直すと黙って元に戻る。`OverlayApp._watch_overlay()` が 2 秒ごとと
+  `screenChanged` 時に再適用し、`make_visible_over_fullscreen()` と `macos.reapply_if_reverted()` の
+  どちらも設定後に値を読み戻して、不一致なら False を返す（検証していない成功ログを出さない）。
+  派生して重要な点が3つ: 初回の適用が**失敗しても**ウォッチドッグは動かす（失敗こそがウォッチドッグの存在理由。
+  止めるのは `macos.pyobjc_available()` が「そもそも不可能」と答えたときだけ）。`windowHandle()` が変わったら
+  `screenChanged` を接続し直す（QWindow が作り直されると古い接続は孤立するため）。AppKit に拒否された修復は
+  状態ごとに1回だけログする（`macos._LogOnce`）。2秒ごとに永久に出し続けない。
 - **キー操作には TTY が必要**: stdin がターミナルでない場合（IDE/launchd から起動）はゲインを `--gain` でしか設定できない。
 
 ---

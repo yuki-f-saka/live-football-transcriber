@@ -65,14 +65,56 @@ class OverlayApp:
         self.window = SubtitleWindow(settings)
         self.window.show()
         self.window.raise_()
+        self._overlay_timer: QTimer | None = None
+        self._screen_changed_handle: object | None = None
         if settings.fullscreen_overlay and sys.platform == "darwin":
-            from .macos import make_visible_over_fullscreen
-            make_visible_over_fullscreen(self.window)
+            self._setup_fullscreen_overlay()
 
         self.text_queue: "queue.Queue[tuple[str, str]]" = queue.Queue()
         self._poll_timer = QTimer()
         self._poll_timer.timeout.connect(self._poll_text)
         self._poll_timer.start(50)
+
+    def _setup_fullscreen_overlay(self) -> None:
+        """Float the bar over other apps' fullscreen Spaces, and keep it that way (#33).
+
+        Qt recreates the native NSWindow on some screen/Space changes, resetting
+        the collection behaviour to its default and silently undoing the fix, so
+        the intended value is re-asserted periodically and on screen changes
+        rather than only once at startup.
+        """
+        from .macos import make_visible_over_fullscreen, pyobjc_available, use_accessory_activation_policy
+
+        if not pyobjc_available():
+            make_visible_over_fullscreen(self.window)  # logs the "install PyObjC" hint
+            return
+
+        use_accessory_activation_policy()
+        # A first attempt may legitimately fail (the native window is not ready
+        # yet, or AppKit refuses the value once). That is what the watchdog below
+        # is *for*, so it is installed either way.
+        make_visible_over_fullscreen(self.window)
+        self._watch_overlay()
+
+        # Cheap (two ObjC calls) and only acts when the behaviour actually reverted.
+        self._overlay_timer = QTimer()
+        self._overlay_timer.timeout.connect(self._watch_overlay)
+        self._overlay_timer.start(2000)
+
+    def _watch_overlay(self) -> None:
+        """One watchdog tick: repair the behaviour, and follow the native window.
+
+        Qt may replace the QWindow behind the widget, which both resets the
+        collection behaviour and orphans a ``screenChanged`` connection made to
+        the old handle — so the hook is re-attached whenever the handle changes.
+        """
+        from .macos import reapply_if_reverted
+
+        handle = self.window.windowHandle()
+        if handle is not None and handle is not self._screen_changed_handle:
+            handle.screenChanged.connect(lambda _screen: self._watch_overlay())
+            self._screen_changed_handle = handle
+        reapply_if_reverted(self.window)
 
     # -- called from any thread --
     def push_final(self, text: str) -> None:
