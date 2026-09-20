@@ -255,8 +255,8 @@ class InputMonitor(threading.Thread):
         gain = f", gain {self.gain.value:.1f}x" if self.gain else ""
         if self.gain is not None and self.gain.value == 0:
             return (
-                f"Input is muted (gain 0), so nothing reaches the transcriber. "
-                f"Press 'm' to unmute, or pass --gain.",
+                "Input is muted (gain 0), so nothing reaches the transcriber. "
+                "Press 'm' to unmute, or pass --gain.",
                 "🔇 muted",
             )
         if blocks == 0:
