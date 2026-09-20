@@ -187,9 +187,11 @@ Applied in this order to every finalized transcript:
 
    Every term correction is anchored on a word that makes the phrase wrong, not
    on the mis-heard word itself: `"yellow car"` → `"yellow card"` (#32), while
-   `"the car is parked"` is left alone. This runs *before*
-   `HighlightDetector.handle()`, so a clipped `"yellow car"` now fires the
-   yellow-card marker it used to miss.
+   `"the car is parked"` is left alone. Corrections run *before*
+   `HighlightDetector.handle()`, so fixing the text can also recover an event
+   marker — but only for events that are switched on: `yellow_card` is not in
+   `DEFAULT_EVENTS`, and the plural form (`"red cars"` → `"red cards"`) does not
+   match the `red_card` pattern, which anchors on the singular.
 4. **`HighlightDetector.handle(text)`** (`highlights.py`) — matches the text
    against per-event regexes (English + Japanese), applies a per-event cooldown
    so `"GOAL! GOAL! GOAL!"` fires once, then runs the configured actions:
