@@ -187,12 +187,14 @@ class InputMonitor(threading.Thread):
         gain: "Gain | None" = None,
         interval: float = 20.0,
         on_warning: Callable[[str], None] | None = None,
+        min_speech: float | None = None,
     ):
         super().__init__(name="input_monitor", daemon=True)
         self.device = device
         self.threshold = threshold
         self.gain = gain
         self.interval = interval
+        self.min_speech = min_speech
         self.on_warning = on_warning
         self._stop_event = threading.Event()
         self._peak = 0.0
@@ -242,12 +244,25 @@ class InputMonitor(threading.Thread):
             self.on_warning(badge)
 
     def _diagnose(self, peak: float, blocks: int, speech: int, rejects: "Counter[str]") -> tuple[str, str]:
+        """Pick the one explanation the window's numbers actually support.
+
+        Order matters, and so does each guard: a branch must never print figures
+        that contradict the sentence around it. ``speech`` in particular is only
+        counted by the vad backend, and only when a chunk is *queued*, so it is
+        not a usable proxy for "was there any speech".
+        """
         secs = self.interval
         gain = f", gain {self.gain.value:.1f}x" if self.gain else ""
+        if self.gain is not None and self.gain.value == 0:
+            return (
+                f"Input is muted (gain 0), so nothing reaches the transcriber. "
+                f"Press 'm' to unmute, or pass --gain.",
+                "🔇 muted",
+            )
         if blocks == 0:
             return (
                 f"No audio delivered by '{self.device}' in the last {secs:.0f}s — "
-                f"the input stream is open but idle.",
+                f"the capture stream is not running yet, or it is open and idle.",
                 "⚠ no audio",
             )
         if peak < self.QUIET:
@@ -257,22 +272,40 @@ class InputMonitor(threading.Thread):
                 f"and that the source is actually playing.",
                 "⚠ no audio",
             )
-        if self.threshold is not None and speech == 0:
+        if rejects:
+            # Do not report a chunk count here: the rejected chunk may have been
+            # queued in the previous window, and streaming mode never counts one.
+            detail = ", ".join(f"{reason}={n}" for reason, n in sorted(rejects.items()))
+            return (
+                f"Every transcription in the last {secs:.0f}s was filtered out "
+                f"({detail}). Run with --log-file and read the DEBUG lines to see the discarded text.",
+                "⚠ all filtered",
+            )
+        if self.threshold is not None and peak <= self.threshold:
             return (
                 f"Audio on '{self.device}' stayed below the speech threshold for {secs:.0f}s "
                 f"(peak RMS {peak:.4f} < {self.threshold:.3f}{gain}). "
                 f"Lower --threshold or raise the gain with '+'.",
                 f"⚠ quiet {peak:.3f}<{self.threshold:.2f}",
             )
-        if rejects:
-            detail = ", ".join(f"{reason}={n}" for reason, n in sorted(rejects.items()))
+        if self.threshold is not None and speech == 0:
+            # Loud enough, but nothing was ever long enough to be worth sending.
+            too_short = f" shorter than --min-speech {self.min_speech:g}s" if self.min_speech else " too short"
             return (
-                f"{speech} chunk(s) transcribed in {secs:.0f}s but every result was filtered out "
-                f"({detail}). Run with --log-file and read the DEBUG lines to see the discarded text.",
-                "⚠ all filtered",
+                f"Audio on '{self.device}' crossed the speech threshold "
+                f"(peak RMS {peak:.4f} > {self.threshold:.3f}{gain}) but every utterance was"
+                f"{too_short}, so nothing was sent for transcription.",
+                "⚠ too short",
+            )
+        if self.threshold is None:
+            # Streaming mode: Silero owns the VAD, so we know the level and nothing else.
+            return (
+                f"Audio on '{self.device}' (peak RMS {peak:.4f}{gain}) produced no text in "
+                f"{secs:.0f}s — the backend found no speech in it, or the models are still loading.",
+                "⚠ no text",
             )
         return (
-            f"Speech detected on '{self.device}' ({speech} chunk(s), peak RMS {peak:.4f}{gain}) "
-            f"but no text was produced in {secs:.0f}s.",
+            f"{speech} chunk(s) sent for transcription in {secs:.0f}s but no text came back "
+            f"(peak RMS {peak:.4f}{gain}).",
             "⚠ no text",
         )

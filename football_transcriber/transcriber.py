@@ -70,8 +70,7 @@ def run(settings: Settings) -> int:
     # Issue #27: an empty overlay has several causes that look identical in the
     # log; the monitor says which one it is instead of leaving it silent.
     monitor = InputMonitor(settings.device, settings.silence_threshold, gain,
-                           on_warning=app.push_status)
-    monitor.start()
+                           on_warning=app.push_status, min_speech=settings.min_speech)
     # Show startup message to confirm overlay position
     app.window.show_text("▶ Overlay active — waiting for audio...")
 
@@ -180,6 +179,9 @@ def run(settings: Settings) -> int:
         blocksize=int(sr * 0.05),  # 50 ms blocks for responsive VAD
     )
     stream.start()
+    # Only now can blocks arrive; starting earlier would report a dead stream
+    # that simply had not been opened yet.
+    monitor.start()
 
     def shutdown():
         monitor.stop()

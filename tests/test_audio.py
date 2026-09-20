@@ -38,9 +38,9 @@ class GainTests(unittest.TestCase):
 class InputMonitorTests(unittest.TestCase):
     """Issue #27: the monitor must name the reason no subtitles are appearing."""
 
-    def monitor(self, threshold=0.03, **kw):
+    def monitor(self, threshold=0.03, gain=None, **kw):
         self.badges = []
-        return InputMonitor("BlackHole 2ch", threshold, Gain(1.0),
+        return InputMonitor("BlackHole 2ch", threshold, gain or Gain(1.0),
                             interval=20.0, on_warning=self.badges.append, **kw)
 
     def test_no_blocks_means_a_dead_stream(self):
@@ -60,6 +60,45 @@ class InputMonitorTests(unittest.TestCase):
         self.assertIn("0.0180", msg)
         self.assertIn("0.030", msg)
         self.assertIn("quiet", badge)
+
+    def test_loud_but_short_audio_is_not_called_quiet(self):
+        """speech == 0 does not mean "below threshold": vad only counts *queued* chunks.
+
+        A loud utterance shorter than --min-speech leaves speech at 0 with a high
+        peak, which used to print "peak RMS 0.1200 < 0.030" — a sentence its own
+        numbers contradict, pointing at the wrong flag.
+        """
+        msg, badge = self.monitor(min_speech=0.3)._diagnose(0.12, 400, 0, Counter())
+        self.assertNotIn("below the speech threshold", msg)
+        self.assertIn("crossed the speech threshold", msg)
+        self.assertIn("--min-speech 0.3s", msg)
+        self.assertEqual(badge, "⚠ too short")
+
+    def test_muted_input_is_named_instead_of_blamed_on_routing(self):
+        g = Gain(1.0)
+        g.toggle_mute()
+        msg, badge = self.monitor(gain=g)._diagnose(0.0, 400, 0, Counter())
+        self.assertIn("muted", msg)
+        self.assertNotIn("Multi-Output", msg)
+        self.assertEqual(badge, "🔇 muted")
+
+    def test_filtered_message_claims_no_chunk_count(self):
+        """streaming never calls note_speech(), and a vad reject can land in the
+        next window — so the count would be 0 next to "every result was filtered"."""
+        msg, _ = self.monitor(threshold=None)._diagnose(0.12, 400, 0, Counter({"prompt_echo": 2}))
+        self.assertIn("prompt_echo=2", msg)
+        self.assertNotIn("0 chunk", msg)
+
+    def test_streaming_fallback_does_not_claim_speech_was_detected(self):
+        msg, badge = self.monitor(threshold=None)._diagnose(0.12, 400, 0, Counter())
+        self.assertNotIn("Speech detected", msg)
+        self.assertNotIn("0 chunk", msg)
+        self.assertIn("found no speech", msg)
+        self.assertEqual(badge, "⚠ no text")
+
+    def test_vad_fallback_reports_the_chunks_it_really_counted(self):
+        msg, _ = self.monitor()._diagnose(0.12, 400, 4, Counter())
+        self.assertIn("4 chunk(s) sent", msg)
 
     def test_rejected_transcriptions_are_broken_down(self):
         msg, badge = self.monitor()._diagnose(0.12, 400, 6, Counter({"no_speech": 3, "prompt_echo": 2}))

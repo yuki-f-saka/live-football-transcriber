@@ -51,7 +51,6 @@ def run(settings: Settings) -> int:
     # Issue #27. threshold=None: RealtimeSTT/Silero owns the VAD here, so the
     # monitor only reports input level and whether any text came back.
     monitor = InputMonitor(settings.device, None, gain, on_warning=app.push_status)
-    monitor.start()
     app.window.show_partial("▶ Overlay active — loading models...")
 
     max_partial = settings.max_partial_chars
@@ -109,6 +108,10 @@ def run(settings: Settings) -> int:
         blocksize=int(sr * 0.05),  # 50 ms blocks
     )
     stream.start()
+    # Started here, not next to its construction: AudioToTextRecorder above can
+    # take minutes to download models on first run, and a monitor running through
+    # that would report "no audio" from a stream that was not open yet.
+    monitor.start()
 
     stop_event = threading.Event()
 

@@ -160,5 +160,10 @@ highlight_cooldown = 10.0    # seconds before the same event fires again
   `--log-file` shows what was discarded. A short badge also flashes in the overlay, because the terminal is usually
   not visible while watching. `note_block()`/`note_speech()` run on the real-time audio thread and only bump a
   counter — all logging happens on the monitor thread.
+- **A diagnosis must be true of the numbers it prints.** Two traps in `InputMonitor._diagnose()`:
+  `speech` counts *queued chunks*, only in vad mode, so it is not a proxy for "there was speech" — keying the
+  "below threshold" branch on it printed "peak RMS 0.1200 < 0.030". And a reject may be counted in the window
+  *after* the chunk was queued (and streaming never counts a chunk at all), so the filtered-out message names
+  no chunk count. Start the monitor after `stream.start()`, or it reports a dead stream that was never opened.
 - Highlight markers go to `highlights.log` (`--highlight-log`).
 - Thread exception handler is in place for post-crash diagnosis.
