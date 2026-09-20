@@ -55,6 +55,42 @@ def describe_behavior(value: int) -> str:
     return f"0x{value:x} = {' | '.join(names) if names else '(none)'}"
 
 
+class _LogOnce:
+    """Gate that only lets a *changed* state through.
+
+    ``reapply_if_reverted`` runs every two seconds. Without this, a window whose
+    behaviour AppKit refuses to change would write the same two lines to the log
+    forever, which is exactly the noise that made #33 hard to see in the first
+    place.
+    """
+
+    def __init__(self) -> None:
+        self._last: object = None
+
+    def is_new(self, state: object) -> bool:
+        if state == self._last:
+            return False
+        self._last = state
+        return True
+
+    def reset(self) -> None:
+        self._last = None
+
+
+def pyobjc_available() -> bool:
+    """True when the Cocoa bindings the overlay needs can be imported.
+
+    Distinguishes "PyObjC is missing, nothing will ever work" from "this attempt
+    failed", so the caller knows whether retrying is worth anything.
+    """
+    try:
+        import AppKit  # noqa: F401
+        import objc  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def _ns_window(widget):
     """The NSWindow behind a shown QWidget, or None."""
     import objc
@@ -135,12 +171,17 @@ def make_visible_over_fullscreen(widget) -> bool:
         return False
 
 
+_repair_log = _LogOnce()
+
+
 def reapply_if_reverted(widget) -> bool:
     """Re-apply the overlay behaviour if the native window lost it.
 
     Qt recreates the NSWindow on some screen/Space changes, which resets
     ``collectionBehavior`` to its default (``FullScreenPrimary``) and silently
-    breaks the overlay. Returns True when a revert was found and repaired.
+    breaks the overlay. Returns True when a revert was found **and the repair
+    was verified**; a re-apply AppKit did not honour returns False rather than
+    reporting a fix that did not happen.
     """
     try:
         import AppKit
@@ -150,13 +191,25 @@ def reapply_if_reverted(widget) -> bool:
             return False
         current = ns_window.collectionBehavior()
         if current == OVERLAY_BEHAVIOR:
+            _repair_log.reset()
             return False
-        log.info("Overlay behaviour reverted to %s — re-applying %s",
-                 describe_behavior(current), describe_behavior(OVERLAY_BEHAVIOR))
+        first_time = _repair_log.is_new(current)
+        if first_time:
+            log.info("Overlay behaviour reverted to %s — re-applying %s",
+                     describe_behavior(current), describe_behavior(OVERLAY_BEHAVIOR))
         ns_window.setCollectionBehavior_(OVERLAY_BEHAVIOR)
         ns_window.setLevel_(AppKit.NSScreenSaverWindowLevel)
         ns_window.setIgnoresMouseEvents_(True)
         ns_window.setHidesOnDeactivate_(False)
+        # Same rule as make_visible_over_fullscreen(): read it back, never assume.
+        applied = ns_window.collectionBehavior()
+        if applied != OVERLAY_BEHAVIOR:
+            if first_time:
+                log.warning("Re-apply did not take: wanted %s, got %s",
+                            describe_behavior(OVERLAY_BEHAVIOR), describe_behavior(applied))
+            return False
+        _repair_log.reset()
+        log.info("Overlay behaviour repaired (%s)", describe_behavior(applied))
         return True
     except Exception:
         log.exception("Failed to re-apply macOS fullscreen overlay behaviour")

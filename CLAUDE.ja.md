@@ -143,9 +143,13 @@ highlight_cooldown = 10.0    # 同じイベントが再発火するまでの秒�
   `CanJoinAllSpaces | FullScreenAuxiliary | IgnoresCycle` を `NSScreenSaverWindowLevel` で適用、そして
   その後の再適用。`Stationary` は**付けてはいけない** — Apple の定義が「デスクトップウィンドウのように静止して表示」
   であり、バーがデスクトップ Space に固定される原因になる。`show()` 直後の Qt のデフォルトは `FullScreenPrimary` なので、
-  Qt がネイティブウィンドウを作り直すと黙って元に戻る。`OverlayApp._setup_fullscreen_overlay()` が 2 秒ごとと
-  `screenChanged` 時に再適用し、`macos.reapply_if_reverted()` が修復をログに残す。
-  `make_visible_over_fullscreen()` は設定後に値を読み戻し、不一致なら False を返す（検証していない成功ログを出さない）。
+  Qt がネイティブウィンドウを作り直すと黙って元に戻る。`OverlayApp._watch_overlay()` が 2 秒ごとと
+  `screenChanged` 時に再適用し、`make_visible_over_fullscreen()` と `macos.reapply_if_reverted()` の
+  どちらも設定後に値を読み戻して、不一致なら False を返す（検証していない成功ログを出さない）。
+  派生して重要な点が3つ: 初回の適用が**失敗しても**ウォッチドッグは動かす（失敗こそがウォッチドッグの存在理由。
+  止めるのは `macos.pyobjc_available()` が「そもそも不可能」と答えたときだけ）。`windowHandle()` が変わったら
+  `screenChanged` を接続し直す（QWindow が作り直されると古い接続は孤立するため）。AppKit に拒否された修復は
+  状態ごとに1回だけログする（`macos._LogOnce`）。2秒ごとに永久に出し続けない。
 - **キー操作には TTY が必要**: stdin がターミナルでない場合（IDE/launchd から起動）はゲインを `--gain` でしか設定できない。
 
 ---

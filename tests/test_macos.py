@@ -1,6 +1,6 @@
 import unittest
 
-from football_transcriber.macos import _BITS, OVERLAY_BEHAVIOR, describe_behavior
+from football_transcriber.macos import _BITS, OVERLAY_BEHAVIOR, _LogOnce, describe_behavior
 
 
 class OverlayBehaviorTests(unittest.TestCase):
@@ -38,6 +38,28 @@ class DescribeBehaviorTests(unittest.TestCase):
 
     def test_unknown_bits_are_kept_visible(self):
         self.assertEqual(describe_behavior(1 << 20), "0x100000 = 0x100000")
+
+
+class LogOnceTests(unittest.TestCase):
+    """The watchdog runs every 2 s; a permanent failure must not log every tick."""
+
+    def test_repeated_state_is_reported_once(self):
+        gate = _LogOnce()
+        self.assertTrue(gate.is_new(0x80))
+        self.assertFalse(gate.is_new(0x80))
+        self.assertFalse(gate.is_new(0x80))
+
+    def test_a_different_state_is_reported_again(self):
+        gate = _LogOnce()
+        gate.is_new(0x80)
+        self.assertTrue(gate.is_new(0x1))
+
+    def test_reset_makes_the_next_report_new(self):
+        """A successful repair resets the gate, so the next revert is logged."""
+        gate = _LogOnce()
+        gate.is_new(0x80)
+        gate.reset()
+        self.assertTrue(gate.is_new(0x80))
 
 
 if __name__ == "__main__":
