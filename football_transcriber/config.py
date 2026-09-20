@@ -52,7 +52,8 @@ class Settings:
     mode: str = "vad"                      # "vad" (mlx-whisper) or "streaming" (RealtimeSTT)
     device: str = "BlackHole 2ch"          # substring of the input device name
     sample_rate: int = 16000
-    model: str | None = None               # short size ("tiny", "small", ...) or full model name; None = default for mode
+    # short size ("tiny", "small", ...) or full model name; None = the default for the mode
+    model: str | None = None
     realtime_model: str | None = None      # streaming mode only: model for partial updates
     language: str = "en"
 
@@ -81,7 +82,8 @@ class Settings:
     fullscreen_overlay: bool = True        # show over fullscreen apps / all Spaces (needs PyObjC)
 
     # --- Vocabulary (issue #10) ---
-    vocabulary: bool = True                # inject football terms into Whisper's initial_prompt + fix common mis-hearings
+    # inject football terms into Whisper's initial_prompt + fix common mis-hearings
+    vocabulary: bool = True
     players: list[str] = field(default_factory=list)   # player/team names to boost and auto-correct
     players_file: str | None = None        # text file with one name per line (per-match squad list)
 
@@ -167,14 +169,14 @@ class Settings:
         return d
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any], **overrides: Any) -> "Settings":
+    def from_dict(cls, data: dict[str, Any], **overrides: Any) -> Settings:
         known = {f.name for f in fields(cls)}
         clean = {k: v for k, v in data.items() if k in known and v is not None}
         clean.update({k: v for k, v in overrides.items() if v is not None})
         return cls(**clean)
 
     @classmethod
-    def load(cls, path: Path | None = None, **overrides: Any) -> "Settings":
+    def load(cls, path: Path | None = None, **overrides: Any) -> Settings:
         """Load from the config file (if present) and apply CLI overrides on top."""
         path = Path(path) if path else DEFAULT_CONFIG_PATH
         data: dict[str, Any] = {}

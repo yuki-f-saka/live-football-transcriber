@@ -19,7 +19,16 @@ dependencies = [
 
 [project.optional-dependencies]
 streaming = ["RealtimeSTT"]
-dev = ["pytest"]
+dev = [
+    "pytest>=8",
+    # Pinned to a feature series, not a floor: both tools add diagnostics in
+    # minor releases, and an unrelated pull request going red because ruff
+    # shipped a new rule is a failure nobody can act on from the diff. Bump
+    # these deliberately, in a commit that also fixes whatever the new version
+    # finds. See docs/QUALITY.md.
+    "ruff==0.16.*",
+    "mypy==2.3.*",
+]
 
 [project.scripts]
 football-transcriber = "football_transcriber.cli:main"
@@ -29,3 +38,50 @@ packages = ["football_transcriber"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-q --strict-markers"
+
+# ---------------------------------------------------------------------------
+# Quality gates. The same three commands run in CI (.github/workflows/ci.yml):
+#   ruff check .   |   mypy   |   pytest
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["swift_bin"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # import sorting
+    "UP",       # pyupgrade
+    "B",        # bugbear
+    "SIM",      # simplifications
+    "C4",       # comprehensions
+    "RUF",      # ruff-specific
+]
+# The transcript, the vocabulary and the highlight patterns are full of CJK and
+# full-width punctuation on purpose; the "ambiguous unicode character" rules
+# only produce false positives here.
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.mypy]
+# python_version is deliberately left at the running interpreter's: pinning it to
+# the 3.10 floor makes mypy parse the installed numpy stubs as 3.10, and recent
+# numpy uses PEP 695 `type` statements in them. Ruff's target-version = "py310"
+# is what keeps the source itself 3.10-compatible.
+# The app only ever runs on macOS. Pinning the platform keeps the Linux CI
+# runner checking the same branches as a local run instead of skipping them.
+platform = "darwin"
+files = ["football_transcriber"]
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+
+# Audio, ML and Cocoa bindings ship no type information, and the macOS-only ones
+# are not installed at all on the Linux CI runner.
+[[tool.mypy.overrides]]
+module = ["sounddevice.*", "mlx_whisper.*", "RealtimeSTT.*", "AppKit.*", "objc.*"]
+ignore_missing_imports = true

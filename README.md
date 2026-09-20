@@ -140,6 +140,8 @@ Settings resolve as: built-in defaults → config file → CLI flags. Use `--sho
 
 ## How It Works
 
+A condensed view; [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) has the full flow.
+
 ### vad mode
 
 ```
@@ -178,8 +180,18 @@ System audio → BlackHole 2ch
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest
+
+ruff check .    # lint
+mypy            # type check
+pytest          # unit tests (pure Python — no audio device, GPU or display needed)
 ```
+
+The same three commands run in CI on every push and pull request, on Python 3.10
+and 3.12 — see [`docs/QUALITY.md`](docs/QUALITY.md).
+
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) describes the full processing
+flow — capture, segmentation, transcription, text filtering, overlay — and the
+invariants a change must not break.
 
 ## License
 

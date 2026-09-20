@@ -8,7 +8,7 @@ import queue
 import signal
 import sys
 import threading
-from typing import Callable
+from collections.abc import Callable
 
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication
@@ -70,7 +70,7 @@ class OverlayApp:
         if settings.fullscreen_overlay and sys.platform == "darwin":
             self._setup_fullscreen_overlay()
 
-        self.text_queue: "queue.Queue[tuple[str, str]]" = queue.Queue()
+        self.text_queue: queue.Queue[tuple[str, str]] = queue.Queue()
         self._poll_timer = QTimer()
         self._poll_timer.timeout.connect(self._poll_text)
         self._poll_timer.start(50)

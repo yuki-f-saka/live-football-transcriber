@@ -22,6 +22,8 @@ football_transcriber/
 ├── highlights.py             # キーワード → イベント検出とアクション（ログ/通知/音）
 └── macos.py                  # PyObjC: accessory ポリシー + フルスクリーンアプリ上 / 全 Space に表示
 tests/                        # pytest（純 Python の単体テスト。音声/GPU 不要）
+docs/ARCHITECTURE.md          # 処理フロー全体と、変更時に壊してはいけない不変条件
+docs/QUALITY.md               # ruff / mypy / pytest の設定内容と理由、カバーできない範囲
 overlay_transcribe.py         # 薄いラッパー == football-transcriber vad
 overlay_streaming.py          # 薄いラッパー == football-transcriber streaming
 ```
@@ -54,13 +56,26 @@ football-transcriber vad --players-file squads/arsenal.txt     # 1行1名（エ�
 football-transcriber vad --lang ja --screen 0 --players "三笘,久保"
 football-transcriber vad --highlights goal,penalty --notify
 football-transcriber --screen 0 --gain 1.5 --save    # 設定ファイルに保存
-python -m pytest
 ```
 
 初回起動時は HuggingFace からモデルをダウンロードするため数分かかる。
 
 実行中のキー操作（ターミナルで入力。オーバーレイ自体はクリック透過でフォーカスを持たない）:
 `+`/`-`/↑/↓ = 入力ゲイン、`0` = リセット、`m` = ミュート、`q`/Esc = 終了。ゲイン変更は即座に保存される。
+
+---
+
+## 品質ゲート
+
+`ruff check .`、`mypy`、`pytest` の3つを通してからコミットする。このリポジトリで
+「グリーン」とはこの状態を指す。設定は `pyproject.toml`、実行は
+`.github/workflows/ci.yml`（push と pull request のたび）。
+
+CI は Linux で動くため、CoreAudio / Metal / ウィンドウサーバに触る部分は**カバーされない**。
+そこは Mac 上で実際にアプリを動かして確認するしかない。
+
+ルール選定、mypy 設定上の制約、次に締めるべき箇所:
+[`docs/QUALITY.md`](docs/QUALITY.md)。
 
 ---
 

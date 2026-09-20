@@ -27,6 +27,8 @@ football_transcriber/
 ├── highlights.py             # keyword → event detection with actions (log/notify/sound)
 └── macos.py                  # PyObjC: accessory policy + overlay over fullscreen apps / all Spaces
 tests/                        # pytest (pure-Python units; no audio/GPU needed)
+docs/ARCHITECTURE.md          # the full processing flow + the invariants a change must not break
+docs/QUALITY.md               # ruff / mypy / pytest: what is configured, why, and what is not covered
 overlay_transcribe.py         # thin wrapper == football-transcriber vad
 overlay_streaming.py          # thin wrapper == football-transcriber streaming
 ```
@@ -59,13 +61,26 @@ football-transcriber vad --players-file squads/arsenal.txt     # one name (or al
 football-transcriber vad --lang ja --screen 0 --players "三笘,久保"
 football-transcriber vad --highlights goal,penalty --notify
 football-transcriber --screen 0 --gain 1.5 --save    # persist settings to the config file
-python -m pytest
 ```
 
 On first run, models are downloaded from HuggingFace — this takes a few minutes.
 
 Runtime keys (typed in the terminal; the overlay itself is click-through and never has focus):
 `+`/`-`/Up/Down = input gain, `0` = reset, `m` = mute, `q`/Esc = quit. Gain changes are persisted immediately.
+
+---
+
+## Quality gates
+
+`ruff check .`, `mypy` and `pytest` must all pass before committing — that is what
+"green" means here. Configured in `pyproject.toml`, run by `.github/workflows/ci.yml`
+on every push and pull request.
+
+CI runs on Linux, so anything touching CoreAudio, Metal or the window server is
+**not** covered there and has to be verified by running the app on the Mac.
+
+Rule selection, the mypy configuration constraints and what to tighten next:
+[`docs/QUALITY.md`](docs/QUALITY.md).
 
 ---
 

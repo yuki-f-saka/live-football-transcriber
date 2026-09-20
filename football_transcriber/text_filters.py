@@ -15,10 +15,7 @@ def is_hallucination(text: str, min_alpha_chars: int = 4) -> bool:
     if alpha_chars < min_alpha_chars:
         return True
     words = text.split()
-    for i in range(len(words) - 3):
-        if len(set(words[i:i + 4])) == 1:
-            return True
-    return False
+    return any(len(set(words[i:i + 4])) == 1 for i in range(len(words) - 3))
 
 
 # ``\w`` is Unicode-aware, which matters: an explicit ``a-z`` class turns every

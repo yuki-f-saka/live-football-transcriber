@@ -59,8 +59,7 @@ def parse_event_list(value: str | Iterable[str] | None) -> list[str]:
                 out.append(name)
             else:
                 raise ValueError(f"unknown highlight event '{name}'. Choose from: {', '.join(EVENT_PATTERNS)}, all")
-    seen: set[str] = set()
-    return [e for e in out if not (e in seen or seen.add(e))]
+    return list(dict.fromkeys(out))  # de-duplicate, keeping the requested order
 
 
 class HighlightDetector:
