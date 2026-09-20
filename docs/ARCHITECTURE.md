@@ -160,9 +160,17 @@ VAD is delegated to Silero.
 Applied in this order to every finalized transcript:
 
 1. **`is_hallucination(text, min_alpha_chars)`** (`text_filters.py`) — rejects
-   symbol-only output (`"..."`, `"!"`) and the same word repeated four times in
-   a row, both classic Whisper-on-noise failures. CJK languages use a
-   2-character minimum instead of 4, so `ゴール` survives.
+   four classic Whisper-on-noise failures: symbol-only output (`"..."`, `"!"`),
+   the same word repeated four times in a row, *any* unit repeated four times
+   at character level (`"Would it beWould it be..."` — the cycle boundary is
+   not a space, so `split()` cannot see it, #31), and known training-data
+   boilerplate (`"we'll see you next time"`, `"subtitles by ..."`), which is
+   neither repetitive nor a prompt echo. CJK languages use a 2-character
+   minimum instead of 4, so `ゴール` survives.
+
+   The character check needs 16+ characters and 4+ cycles before it judges
+   anything: "Goal! Goal! Goal!" and "Ole, ole, ole!" are periodic too. Over
+   4854 accepted lines of a real session it flags 12, all genuine.
 2. **`looks_like_prompt_echo(text, prompt)`** — on silence Whisper sometimes
    emits its own `initial_prompt` back. The test is a *run* of prompt text
    (5+ words, or 12+ characters for CJK), not bare containment: "free kick",
