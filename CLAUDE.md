@@ -28,6 +28,7 @@ football_transcriber/
 └── macos.py                  # PyObjC: accessory policy + overlay over fullscreen apps / all Spaces
 tests/                        # pytest (pure-Python units; no audio/GPU needed)
 docs/ARCHITECTURE.md          # the full processing flow + the invariants a change must not break
+docs/QUALITY.md               # ruff / mypy / pytest: what is configured, why, and what is not covered
 overlay_transcribe.py         # thin wrapper == football-transcriber vad
 overlay_streaming.py          # thin wrapper == football-transcriber streaming
 ```
@@ -71,27 +72,15 @@ Runtime keys (typed in the terminal; the overlay itself is click-through and nev
 
 ## Quality gates
 
-Three checks, configured in `pyproject.toml` and run by `.github/workflows/ci.yml`
-on every push and pull request (Linux, Python 3.10 and 3.12):
+`ruff check .`, `mypy` and `pytest` must all pass before committing — that is what
+"green" means here. Configured in `pyproject.toml`, run by `.github/workflows/ci.yml`
+on every push and pull request.
 
-```bash
-pip install -e ".[dev]"
-ruff check .    # lint: pycodestyle, pyflakes, import order, pyupgrade, bugbear, simplify
-mypy            # type check, football_transcriber/ only
-pytest          # unit tests
-```
+CI runs on Linux, so anything touching CoreAudio, Metal or the window server is
+**not** covered there and has to be verified by running the app on the Mac.
 
-Run all three before committing; they are the definition of "green" for this repo.
-
-- `ruff` is configured at `line-length = 120`. Formatting (`ruff format`) is **not**
-  enforced yet — the repo predates it and reformatting would collide with the open PRs.
-- `mypy` pins `platform = "darwin"`, so the Linux runner checks the same branches a
-  local run does. Untyped native bindings (`sounddevice`, `mlx_whisper`, `RealtimeSTT`,
-  `AppKit`, `objc`) are listed under `ignore_missing_imports`; add new ones there rather
-  than sprinkling `# type: ignore`.
-- CI installs on Linux, where the `sys_platform == "darwin"` dependencies (mlx-whisper,
-  pyobjc) are absent. Anything that touches CoreAudio, Metal or the window server can
-  therefore only be verified by running the app on the Mac.
+Rule selection, the mypy configuration constraints and what to tighten next:
+[`docs/QUALITY.md`](docs/QUALITY.md).
 
 ---
 

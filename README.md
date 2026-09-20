@@ -186,8 +186,8 @@ mypy            # type check
 pytest          # unit tests (pure Python — no audio device, GPU or display needed)
 ```
 
-The same three commands run in CI on every push and pull request
-([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), on Python 3.10 and 3.12.
+The same three commands run in CI on every push and pull request, on Python 3.10
+and 3.12 — see [`docs/QUALITY.md`](docs/QUALITY.md).
 
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) describes the full processing
 flow — capture, segmentation, transcription, text filtering, overlay — and the

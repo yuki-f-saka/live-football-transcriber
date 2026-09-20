@@ -259,15 +259,8 @@ touching CoreAudio, Metal or the window server is exercised by running the app.
 
 ## 8. Quality gates
 
-Locally and in CI (`.github/workflows/ci.yml`), on every push and pull request:
+`ruff check .`, `mypy` and `pytest`, locally and in CI on every push and pull
+request. Because CI runs on Linux, it covers the pure-Python logic above and
+none of the platform layer — that is verified on the machine it runs on.
 
-```bash
-ruff check .        # lint: imports, pyupgrade, bugbear, simplify
-mypy                # type check (football_transcriber/)
-pytest              # unit tests
-```
-
-CI runs on Linux with Python 3.10 and 3.12. The macOS-only dependencies
-(`mlx-whisper`, `pyobjc`) are marked `sys_platform == "darwin"` and are simply
-absent there, so CI covers the pure-Python logic — the platform layer is
-verified on the machine it runs on.
+See [`QUALITY.md`](QUALITY.md).
