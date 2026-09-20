@@ -112,6 +112,24 @@ One job, matrixed over the two Python versions:
 - `pull_request` workflows run from the merge ref (base + head), so a change to
   this workflow on `main` starts gating every open pull request immediately —
   including ones branched before it existed.
+- `permissions: contents: read` — nothing in the job writes anything back, so
+  it does not inherit the repository's default token scopes. Any step that
+  later needs to comment or push must ask for that scope explicitly.
+- `cancel-in-progress` applies to pull requests only. Superseding a run is
+  right while a branch is being iterated on, but on `main` it would leave a
+  commit whose only verdict is "cancelled" — and that verdict is what branch
+  protection (below) would be checking.
+
+---
+
+## Keeping the tooling current
+
+`ruff` and `mypy` are pinned to a feature series (`==0.16.*`, `==2.3.*`) rather
+than floored. Both add diagnostics in minor releases, so a floating range means
+an unrelated pull request can go red because of a rule that has nothing to do
+with its diff. Bump the pin in its own commit, together with whatever the new
+version flags — that way the noise lands once, on purpose, with a reviewer
+looking at it.
 
 ---
 

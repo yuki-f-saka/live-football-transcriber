@@ -5,9 +5,16 @@ on:
     branches: [main]
   pull_request:
 
+# Nothing here writes anything back; the default token scopes can be broader.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Superseding a push is only wanted on a pull request. On main, cancelling
+  # would leave a commit whose only verdict is "cancelled" — which matters
+  # because this check is what branch protection would require.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   checks:
