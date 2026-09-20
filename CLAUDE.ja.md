@@ -16,7 +16,7 @@ football_transcriber/
 ├── overlay.py                # SubtitleWindow（PyQt6）+ ステータスバッジ
 ├── transcriber.py            # VAD チャンキング + mlx-whisper バックエンド（"vad" モード）
 ├── streaming_transcriber.py  # RealtimeSTT バックエンド（"streaming" モード）
-├── audio.py                  # デバイス検索、Gain、KeyboardController（ターミナルキー入力）
+├── audio.py                  # デバイス検索、Gain、KeyboardController、InputMonitor
 ├── vocabulary.py             # Whisper initial_prompt + 用語/選手名補正 + エイリアス
 ├── text_filters.py           # is_hallucination()、looks_like_prompt_echo()
 ├── highlights.py             # キーワード → イベント検出とアクション（ログ/通知/音）
@@ -102,6 +102,7 @@ audio_callback（リアルタイム、50ms ブロック）→ Gain.apply() → R
             └─ highlights.handle()
                  └─ text_queue → poll（Qt タイマー、50ms）→ SubtitleWindow.show_text()
 KeyboardController（スレッド、stdin cbreak）→ Gain.set() → push_status() + Settings.save_key("gain")
+InputMonitor（スレッド、20秒ごと）→ 字幕が出ない理由を WARNING で出力 + オーバーレイにバッジ表示
 ```
 
 streaming モードも sounddevice で取り込み（`use_microphone=False`）、int16 PCM を `AudioToTextRecorder.feed_audio()` に渡すことで同じ Gain が効く。
@@ -157,5 +158,17 @@ highlight_cooldown = 10.0    # 同じイベントが再発火するまでの秒�
 ## ログ
 
 - `transcriber.log`（`--log-file`）にファイル出力（stdout にも同時出力）。ルートは INFO、`football_transcriber.*` は DEBUG。
+- **字幕が出ない理由**（#27）: `InputMonitor`（`audio.py`）が、何も文字起こしされていない間は20秒ごとに WARNING を出し、
+  原因を特定する — ストリームが無稼働、デジタル無音（ルーティング）、`silence_threshold` 未満の信号（観測ピーク RMS と
+  ゲインつき）、または全結果がフィルタで除去（理由別の件数つき）。除去された文字起こしは理由（`no_speech` / `empty` /
+  `hallucination` / `prompt_echo`）とともに個別に DEBUG 出力されるので、`--log-file` で捨てられた内容を確認できる。
+  観戦中はターミナルが見えないため、オーバーレイにも短いバッジを表示する。`note_block()`/`note_speech()` はリアルタイム
+  音声スレッドで動くのでカウンタを増やすだけ — ログ出力はすべてモニタスレッド側。
+- **診断メッセージは、自分が出力する数値と矛盾してはいけない。** `InputMonitor._diagnose()` の罠が2つ:
+  `speech` は「キューに入れたチャンク数」を vad モードでのみ数えるので、「音声があったか」の代用にはならない
+  （これを「しきい値未満」分岐の条件にすると "peak RMS 0.1200 < 0.030" という自己矛盾した文が出る）。また
+  リジェクトはチャンクを積んだ次のウィンドウで計上されうる（streaming はそもそもチャンクを数えない）ので、
+  フィルタ除去メッセージにチャンク数を書かない。モニタは `stream.start()` の後で開始すること
+  — 先に開始すると、まだ開いてもいないストリームを「無稼働」と報告する。
 - ハイライトのマーカーは `highlights.log`（`--highlight-log`）。
 - スレッド例外ハンドラがあり、クラッシュ後の原因診断に利用できる。

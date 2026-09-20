@@ -20,7 +20,7 @@ import numpy as np
 import sounddevice as sd
 
 from .app import OverlayApp
-from .audio import find_device_index
+from .audio import InputMonitor, find_device_index
 from .config import Settings
 from .text_filters import is_hallucination, looks_like_prompt_echo
 from .vocabulary import Vocabulary
@@ -66,6 +66,11 @@ def run(settings: Settings) -> int:
 
     app = OverlayApp(settings)
     gain = app.attach_gain_control(settings.gain)
+    log.info("Input gain: %.1fx", gain.value)
+    # Issue #27: an empty overlay has several causes that look identical in the
+    # log; the monitor says which one it is instead of leaving it silent.
+    monitor = InputMonitor(settings.device, settings.silence_threshold, gain,
+                           on_warning=app.push_status, min_speech=settings.min_speech)
     # Show startup message to confirm overlay position
     app.window.show_text("▶ Overlay active — waiting for audio...")
 
@@ -86,6 +91,7 @@ def run(settings: Settings) -> int:
         try:
             audio = gain.apply(indata[:, 0].copy())
             rms = float(np.sqrt(np.mean(audio ** 2)))
+            monitor.note_block(rms)
             is_speech = rms > silence_threshold
 
             if is_speech:
@@ -96,6 +102,7 @@ def run(settings: Settings) -> int:
 
                 # Safety flush for very long continuous speech
                 if len(vad.speech_buffer) >= max_speech_samples:
+                    monitor.note_speech()
                     audio_queue.put(vad.speech_buffer.copy())
                     vad.speech_buffer = np.zeros(0, dtype=np.float32)
 
@@ -107,12 +114,18 @@ def run(settings: Settings) -> int:
                 if vad.silence_samples >= post_speech_silence_samples:
                     # Enough silence detected — trigger transcription
                     if len(vad.speech_buffer) >= min_speech_samples:
+                        monitor.note_speech()
                         audio_queue.put(vad.speech_buffer.copy())
                     vad.speech_buffer = np.zeros(0, dtype=np.float32)
                     vad.silence_samples = 0
                     vad.is_speaking = False
         except Exception:
             log.exception("Exception in audio_callback")
+
+    def reject(reason: str, text: str, detail: str = "") -> None:
+        """Count and log a discarded transcription so --log-file shows what was lost."""
+        monitor.note_reject(reason)
+        log.debug("rejected (%s%s): %r", reason, f" {detail}" if detail else "", text)
 
     def transcription_worker():
         while True:
@@ -126,19 +139,29 @@ def run(settings: Settings) -> int:
                     language=settings.language,
                     initial_prompt=prompt,
                 )
+                text = result["text"].strip()
 
                 # Skip segments where Whisper is not confident there is speech
                 segments = result.get("segments", [])
                 if segments:
                     avg_no_speech = sum(s.get("no_speech_prob", 0) for s in segments) / len(segments)
                     if avg_no_speech > 0.5:
+                        reject("no_speech", text, f"p={avg_no_speech:.2f}")
                         continue
 
-                text = result["text"].strip()
-                if not text or is_hallucination(text, min_alpha) or looks_like_prompt_echo(text, prompt):
+                if not text:
+                    reject("empty", text)
                     continue
+                if is_hallucination(text, min_alpha):
+                    reject("hallucination", text)
+                    continue
+                if looks_like_prompt_echo(text, prompt):
+                    reject("prompt_echo", text)
+                    continue
+
                 text = vocab.correct(text)
                 log.info(text)
+                monitor.note_text()
                 app.push_final(text)
                 highlights.handle(text)
             except Exception:
@@ -156,8 +179,12 @@ def run(settings: Settings) -> int:
         blocksize=int(sr * 0.05),  # 50 ms blocks for responsive VAD
     )
     stream.start()
+    # Only now can blocks arrive; starting earlier would report a dead stream
+    # that simply had not been opened yet.
+    monitor.start()
 
     def shutdown():
+        monitor.stop()
         stream.stop()
         stream.close()
         audio_queue.put(None)
