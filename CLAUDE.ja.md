@@ -24,6 +24,7 @@ football_transcriber/
 tests/                        # pytest（純 Python の単体テスト。音声/GPU 不要）
 docs/ARCHITECTURE.md          # 処理フロー全体と、変更時に壊してはいけない不変条件
 docs/QUALITY.md               # ruff / mypy / pytest の設定内容と理由、カバーできない範囲
+docs/DEVELOPMENT-POLICY.md    # 変更のどこまでを読むべきか、ゲートで覆えない範囲はどこか
 overlay_transcribe.py         # 薄いラッパー == football-transcriber vad
 overlay_streaming.py          # 薄いラッパー == football-transcriber streaming
 ```
@@ -76,6 +77,12 @@ CI は Linux で動くため、CoreAudio / Metal / ウィンドウサーバに�
 
 ルール選定、mypy 設定上の制約、次に締めるべき箇所:
 [`docs/QUALITY.md`](docs/QUALITY.md)。
+
+テストがグリーンであることの意味はファイルによって違う。約300行 — `audio_callback` の中身、
+`macos.py`、`OverlayApp` の配線 — はどのゲートでも実行できないので変更時に必ず読む。純粋な
+モジュールは `pytest` から完全に到達できるので、**そこで指摘が出たら、要求を明文化する
+テストと一緒に修正を出す**こと。その根拠と、300行を減らす方法:
+[`docs/DEVELOPMENT-POLICY.md`](docs/DEVELOPMENT-POLICY.md)。
 
 ---
 

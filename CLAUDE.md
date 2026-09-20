@@ -29,6 +29,7 @@ football_transcriber/
 tests/                        # pytest (pure-Python units; no audio/GPU needed)
 docs/ARCHITECTURE.md          # the full processing flow + the invariants a change must not break
 docs/QUALITY.md               # ruff / mypy / pytest: what is configured, why, and what is not covered
+docs/DEVELOPMENT-POLICY.md    # how much of a change has to be read, and what the gates cannot cover
 overlay_transcribe.py         # thin wrapper == football-transcriber vad
 overlay_streaming.py          # thin wrapper == football-transcriber streaming
 ```
@@ -81,6 +82,12 @@ CI runs on Linux, so anything touching CoreAudio, Metal or the window server is
 
 Rule selection, the mypy configuration constraints and what to tighten next:
 [`docs/QUALITY.md`](docs/QUALITY.md).
+
+A green suite is not the same answer for every file. Roughly 300 lines — the
+`audio_callback` bodies, `macos.py`, the `OverlayApp` wiring — cannot be executed by
+any gate and have to be read on change; the pure modules are fully reachable from
+`pytest`, and **a finding in one of them ships with a test that states the requirement**.
+The reasoning, and what would shrink that 300: [`docs/DEVELOPMENT-POLICY.md`](docs/DEVELOPMENT-POLICY.md).
 
 ---
 
