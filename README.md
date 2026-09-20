@@ -192,6 +192,8 @@ and 3.12 — see [`docs/QUALITY.md`](docs/QUALITY.md).
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) describes the full processing
 flow — capture, segmentation, transcription, text filtering, overlay — and the
 invariants a change must not break.
+[`docs/DEVELOPMENT-POLICY.md`](docs/DEVELOPMENT-POLICY.md) says how much of a
+change has to be read by hand, and why the gates cannot cover the rest.
 
 ## License
 
