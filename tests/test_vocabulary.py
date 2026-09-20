@@ -122,9 +122,16 @@ class AliasTests(unittest.TestCase):
 
 class PromptEchoTests(unittest.TestCase):
     def test_echo_detected(self):
-        prompt = Vocabulary("en", ["Salah"]).prompt
+        prompt = Vocabulary("en", ["Salah", "Haaland", "De Bruyne"]).prompt
         self.assertTrue(looks_like_prompt_echo("Football commentary. Terms: offside, onside", prompt))
-        self.assertTrue(looks_like_prompt_echo("Players: Salah.", prompt))
+        self.assertTrue(looks_like_prompt_echo("Players: Salah, Haaland, De Bruyne.", prompt))
+
+    def test_a_single_name_from_the_prompt_is_not_an_echo(self):
+        # Issue #26: "Players: Salah." is indistinguishable from a commentator
+        # simply saying the name, so only a long run of prompt text counts.
+        prompt = Vocabulary("en", ["Salah"]).prompt
+        self.assertFalse(looks_like_prompt_echo("Salah.", prompt))
+        self.assertFalse(looks_like_prompt_echo("Free kick.", prompt))
 
     def test_real_text_passes(self):
         prompt = Vocabulary("en").prompt

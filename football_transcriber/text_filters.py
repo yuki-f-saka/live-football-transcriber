@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 
 def is_hallucination(text: str, min_alpha_chars: int = 4) -> bool:
     """Detect Whisper hallucinations: symbol-only output or repeated words.
@@ -19,11 +21,32 @@ def is_hallucination(text: str, min_alpha_chars: int = 4) -> bool:
     return False
 
 
+# ``\w`` is Unicode-aware, which matters: an explicit ``a-z`` class turns every
+# accented letter into a separator, so "Darwin Núñez, Luis Díaz" would normalise
+# to six tokens ("darwin n ez luis d az") and trip the run threshold below while
+# being perfectly ordinary commentary.
+_NON_WORD_RE = re.compile(r"[\W_]+")
+_CJK_RE = re.compile(r"[぀-ヿ一-鿿]")
+
+# An echo is a *run* of prompt text, not any phrase that happens to occur in it.
+# The prompt is a list of football terms and player names, so "free kick",
+# "own goal" and "Declan Rice" are prompt substrings *and* real commentary;
+# parroting spills several list items at once. Requiring a long run keeps the
+# real speech. The cost is that a very short echo ("Football commentary.") may
+# slip through — one stray subtitle is cheaper than dropping every "Free kick."
+# That stray subtitle also reaches highlights.handle(), so a short echo like
+# "penalty, corner kick." can fire an event. Gating highlights on "is a prompt
+# substring" would be worse: penalty, corner kick, own goal and VAR are all
+# prompt terms *and* real events, so it would suppress most true positives.
+# The per-event cooldown limits the damage to one marker per event per window.
+_MIN_ECHO_WORDS = 5
+# Japanese has no spaces, so a run of terms collapses into few tokens and is
+# measured in characters instead.
+_MIN_ECHO_CHARS = 12
 
 
 def _normalise(text: str) -> str:
-    import re
-    return re.sub(r"[^0-9a-z぀-ヿ一-鿿]+", " ", text.lower()).strip()
+    return _NON_WORD_RE.sub(" ", text.lower()).strip()
 
 
 def looks_like_prompt_echo(text: str, prompt: str | None) -> bool:
@@ -35,6 +58,8 @@ def looks_like_prompt_echo(text: str, prompt: str | None) -> bool:
     if not prompt:
         return False
     t = _normalise(text)
-    if len(t) < 8:
+    if not t or t not in _normalise(prompt):
         return False
-    return t in _normalise(prompt)
+    if _CJK_RE.search(t):
+        return len(t.replace(" ", "")) >= _MIN_ECHO_CHARS
+    return len(t.split()) >= _MIN_ECHO_WORDS
